@@ -1,27 +1,31 @@
 /**
  * \file
  *
- * \brief gcc starttup file for SAMD21
+ * \brief gcc startup file for SAMD21
  *
- * Copyright (c) 2018 Microchip Technology Inc.
+ * Copyright (c) 2016-2018 Microchip Technology Inc. and its subsidiaries.
  *
  * \asf_license_start
  *
  * \page License
  *
- * SPDX-License-Identifier: Apache-2.0
+ * Subject to your compliance with these terms, you may use Microchip
+ * software and any derivatives exclusively with Microchip products.
+ * It is your responsibility to comply with third party license terms applicable
+ * to your use of third party software (including open source software) that
+ * may accompany Microchip software.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may
- * not use this file except in compliance with the License.
- * You may obtain a copy of the Licence at
- * 
- * http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an AS IS BASIS, WITHOUT
- * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * THIS SOFTWARE IS SUPPLIED BY MICROCHIP "AS IS". NO WARRANTIES,
+ * WHETHER EXPRESS, IMPLIED OR STATUTORY, APPLY TO THIS SOFTWARE,
+ * INCLUDING ANY IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY,
+ * AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT WILL MICROCHIP BE
+ * LIABLE FOR ANY INDIRECT, SPECIAL, PUNITIVE, INCIDENTAL OR CONSEQUENTIAL
+ * LOSS, DAMAGE, COST OR EXPENSE OF ANY KIND WHATSOEVER RELATED TO THE
+ * SOFTWARE, HOWEVER CAUSED, EVEN IF MICROCHIP HAS BEEN ADVISED OF THE
+ * POSSIBILITY OR THE DAMAGES ARE FORESEEABLE.  TO THE FULLEST EXTENT
+ * ALLOWED BY LAW, MICROCHIP'S TOTAL LIABILITY ON ALL CLAIMS IN ANY WAY
+ * RELATED TO THIS SOFTWARE WILL NOT EXCEED THE AMOUNT OF FEES, IF ANY,
+ * THAT YOU HAVE PAID DIRECTLY TO MICROCHIP FOR THIS SOFTWARE.
  *
  * \asf_license_stop
  *
@@ -50,9 +54,9 @@ void __libc_init_array(void);
 void Dummy_Handler(void);
 
 /* Cortex-M0+ core handlers */
-void NonMaskableInt_Handler  ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
+void NMI_Handler             ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
 void HardFault_Handler       ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
-void SVCall_Handler          ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
+void SVC_Handler             ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
 void PendSV_Handler          ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
 void SysTick_Handler         ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
 
@@ -108,6 +112,9 @@ void I2S_Handler             ( void ) __attribute__ ((weak, alias("Dummy_Handler
 #ifdef ID_AC1
 void AC1_Handler             ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
 #endif
+#ifdef ID_TCC3
+void TCC3_Handler            ( void ) __attribute__ ((weak, alias("Dummy_Handler")));
+#endif
 
 /* Exception Table */
 __attribute__ ((section(".vectors")))
@@ -117,7 +124,7 @@ const DeviceVectors exception_table = {
         .pvStack                = (void*) (&_estack),
 
         .pfnReset_Handler       = (void*) Reset_Handler,
-        .pfnNonMaskableInt_Handler = (void*) NonMaskableInt_Handler,
+        .pfnNonMaskableInt_Handler         = (void*) NMI_Handler,
         .pfnHardFault_Handler   = (void*) HardFault_Handler,
         .pvReservedM12          = (void*) (0UL), /* Reserved */
         .pvReservedM11          = (void*) (0UL), /* Reserved */
@@ -126,7 +133,7 @@ const DeviceVectors exception_table = {
         .pvReservedM8           = (void*) (0UL), /* Reserved */
         .pvReservedM7           = (void*) (0UL), /* Reserved */
         .pvReservedM6           = (void*) (0UL), /* Reserved */
-        .pfnSVCall_Handler      = (void*) SVCall_Handler,
+        .pfnSVCall_Handler         = (void*) SVC_Handler,
         .pvReservedM4           = (void*) (0UL), /* Reserved */
         .pvReservedM3           = (void*) (0UL), /* Reserved */
         .pfnPendSV_Handler      = (void*) PendSV_Handler,
@@ -202,9 +209,12 @@ const DeviceVectors exception_table = {
         .pvReserved27           = (void*) (0UL),                  /* 27 Reserved */
 #endif
 #ifdef ID_AC1
-        .pfnAC1_Handler         = (void*) AC1_Handler             /* 28 Analog Comparators 1 */
+        .pfnAC1_Handler         = (void*) AC1_Handler,            /* 28 Analog Comparators 1 */
 #else
-        .pvReserved28           = (void*) (0UL)                   /* 28 Reserved */
+        .pvReserved28           = (void*) (0UL),                  /* 28 Reserved */
+#endif
+#ifdef ID_TCC3
+        .pfnTCC3_Handler        = (void*) TCC3_Handler            /* 29 Timer Counter Control 3 */
 #endif
 };
 
