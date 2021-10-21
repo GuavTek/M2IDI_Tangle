@@ -5,13 +5,6 @@ VisualStudioVersion = 14.0.23107.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{E66E83B9-2572-4076-B26E-6BE79FF3018A}") = "MIDIBUS_Tangle", "MIDIBUS_Tangle\MIDIBUS_Tangle.cppproj", "{DCE6C7E3-EE26-4D79-826B-08594B9AD897}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{3F4B41B8-95D6-40BD-B9DC-5605C61ED117}"
-	ProjectSection(SolutionItems) = preProject
-		MIDI_driver\JSON_properties.h = MIDI_driver\JSON_properties.h
-		MIDI_driver\MIDI_Driver.cpp = MIDI_driver\MIDI_Driver.cpp
-		MIDI_driver\MIDI_Driver.h = MIDI_driver\MIDI_Driver.h
-	EndProjectSection
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
