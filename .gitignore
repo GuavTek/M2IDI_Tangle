@@ -1,3 +1,6 @@
+MIDIBUS_Tangle/Debug/
+.atsuo
+
 # Prerequisites
 *.d
 
@@ -21,10 +24,6 @@
 *.smod
 
 # Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
 
 # Executables
 *.exe
