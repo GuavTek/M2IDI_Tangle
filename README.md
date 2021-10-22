@@ -1,6 +1,6 @@
 # MIDIBUS Tangle
  
-<p> A gateway between MIDI DIN and MIDIBUS for eurorack systems </p>
+<p> A multiplexer module using MIDIBUS for eurorack systems </p>
 
 <p> The PCBs can be found on 
 <a href="https://cadlab.io/project/24863/master/files">CADLAB</a>
