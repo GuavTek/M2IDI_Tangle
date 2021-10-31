@@ -79,7 +79,7 @@ const spi_config_t SPI_CONF = {
 };
 
 const CAN_Config_t CAN_CONF = {
-	.rxMethod = CAN_Config_t::CAN_Rx_Interrupt,
+	.rxMethod = CAN_Config_t::CAN_Rx_RTC,
 	.interruptPin = 0,
 	.clkOutDiv = CAN_Config_t::clkOutDiv1,
 	.sysClkDiv = false,
