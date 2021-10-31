@@ -17,6 +17,27 @@ MCP2517_C CAN(SERCOM1);
 
 MIDI_C MIDI(2);
 
+struct Settings_t {
+	union{
+		uint32_t word;
+		struct{
+			uint8_t group;
+			uint8_t channel;
+			uint16_t bank;
+		};
+	};
+};
+
+struct Profile_t {
+	union{
+		uint32_t word;
+		struct{
+			uint8_t program;
+			uint32_t muxState : 24;
+		};
+	};
+};
+
 void Receive_CAN(CAN_Rx_msg_t* msg);
 
 void MIDI2_Handler(MIDI2_voice_t* msg);
@@ -25,6 +46,13 @@ void MIDI1_Handler(MIDI1_msg_t* msg);
 void RTC_Init();
 
 void Set_Mux(uint8_t inLine, uint8_t outLine);
+void NVM_Init();
+void Scan_EEPROM();
+Profile_t Load_Profile(uint8_t index);
+void Load_EEPROM(uint8_t index);
+void Save_EEPROM(uint8_t index);
+void Clear_EEPROM(uint8_t index);
+void Save_Settings();
 
 // Translate output number to pin levels
 const uint8_t MuxOut[8][8] = {
@@ -46,6 +74,12 @@ const uint8_t MuxPins[8][3] = {
 	{PIN_PA28, PIN_PB23, PIN_PA27},
 	{PIN_PA20, PIN_PA15, PIN_PA21},
 	{PIN_PA22, PIN_PB22, PIN_PA23}};
+
+uint8_t eeprom_buff[RWW_EEPROM_PAGE_SIZE];
+uint8_t pageNum;
+	
+uint32_t muxState = 0;
+uint16_t savedProfiles[128*4/RWW_EEPROM_PAGE_SIZE];
 		
 uint8_t buttonState;
 uint8_t buttonStatePrev;
@@ -54,11 +88,25 @@ uint8_t readOffset = 0;
 uint8_t buttonNum;
 uint8_t buttonHold;
 
+Settings_t currentSettings;
+uint16_t currentBank = 0;	// The Bank being accessed by MIDI
+
+enum SysState_t{
+	idle,
+	firstButt,
+	secondButt,
+	held,
+	waitMIDI
+	}sysState;
+uint8_t firstButton;
+
 int main(void)
 {
 	system_init();
 	CAN.Init(CAN_CONF, SPI_CONF);
+	CAN.Set_Rx_Callback(Receive_CAN);
 	RTC_Init();
+	
 	
 	// Set MUX controls as outputs
 	PORT->Group[0].DIRSET.reg = 0x18f0fff3;
@@ -66,7 +114,7 @@ int main(void)
 	
 	// Set button group select as output
 	PORT->Group[1].DIRSET.reg = 0x0000000c;
-	PORT->Group[1].OUTSET.reg = 1 << 2;
+	PORT->Group[1].OUTSET.reg = 1 << 3;
 	
 	// Set LED as output (Disable for debugging)
 	PORT->Group[0].DIRSET.reg = 1 << 31;
@@ -77,6 +125,12 @@ int main(void)
 	PORT->Group[0].PINCFG[3].bit.INEN = 1;
 	PORT->Group[1].PINCFG[10].bit.INEN = 1;
 	PORT->Group[1].PINCFG[11].bit.INEN = 1;
+	
+	NVM_Init();
+	
+	Scan_EEPROM();
+	Load_EEPROM(0);
+	
 	
 	MIDI.Set_handler(MIDI2_Handler);
 	MIDI.Set_handler(MIDI1_Handler);
@@ -93,19 +147,39 @@ int main(void)
 			
 			// Read Buttons
 			uint8_t temp;
-			temp = (PORT->Group[1].IN.reg & (1 << 10)) ? 0b0001 : 0;
-			temp |= (PORT->Group[1].IN.reg & (1 << 11)) ? 0b0010 : 0;
-			temp |= (PORT->Group[0].IN.reg & (1 << 3)) ? 0b0100 : 0;
-			temp |= (PORT->Group[0].IN.reg & (1 << 2)) ? 0b1000 : 0;
+			temp = (PORT->Group[1].IN.reg & (1 << 10)) ? 0 : 0b0001;
+			temp |= (PORT->Group[1].IN.reg & (1 << 11)) ? 0 : 0b0010;
+			temp |= (PORT->Group[0].IN.reg & (1 << 3)) ? 0 : 0b0100;
+			temp |= (PORT->Group[0].IN.reg & (1 << 2)) ? 0 : 0b1000;
 			
 			buttonState &= ~(0xf << readOffset);
-			buttonState |= ~temp << readOffset;
+			buttonState |= (temp & 0xf) << readOffset;
 			
-			uint8_t diff = buttonState ^ buttonStatePrev;
 			for (uint8_t i = 0; i < 4; i++){
 				if (buttonState & (1 << (i + readOffset))){
-					for (uint8_t j = 0; j < 8; j++){
-						Set_Mux(i + readOffset, j);
+					if (!(buttonStatePrev & (1 << (i + readOffset)))){
+						PORT->Group[0].OUTSET.reg = 1 << 31;
+						// Rising edge
+						buttonHold = 0;
+						if (sysState == SysState_t::firstButt){
+							// Second press
+							sysState = SysState_t::idle;
+							Set_Mux(buttonNum, i + readOffset);
+							buttonNum = 32;
+						} else {
+							// First press
+							sysState = SysState_t::firstButt;
+							buttonNum = i + readOffset;	
+						}
+					}
+					if ((i + readOffset) == buttonNum){
+						if (buttonHold >= 200){
+							sysState = SysState_t::waitMIDI;
+						} else {
+							// Hold timer
+							buttonHold++;
+						}
+						
 					}
 				}
 			}
@@ -123,6 +197,18 @@ int main(void)
 				PORT->Group[1].OUTSET.reg = 1 << 3;
 			}
 			
+		}
+		
+		static uint32_t ledTimer = 0;
+		if (sysState == SysState_t::firstButt){
+			PORT->Group[0].OUTSET.reg = 1 << 31;
+		} else if (sysState == SysState_t::waitMIDI){
+			if (ledTimer <= RTC->MODE0.COUNT.reg){
+				ledTimer = RTC->MODE0.COUNT.reg + 200;
+				PORT->Group[0].OUTTGL.reg = 1 << 31;
+			}
+		} else {
+			PORT->Group[0].OUTCLR.reg = 1 << 31;
 		}
 		
     }
@@ -144,7 +230,6 @@ void RTC_Init(){
 	RTC->MODE0.CTRL.bit.ENABLE = 1;
 }
 
-
 void Set_Mux(uint8_t inLine, uint8_t outLine){
 	for (uint8_t i = 0; i < 3; i++){
 		uint8_t grp = MuxPins[outLine][i] / 32;
@@ -155,6 +240,131 @@ void Set_Mux(uint8_t inLine, uint8_t outLine){
 			PORT->Group[grp].OUTCLR.reg = 1 << pin;
 		}
 	}
+	muxState &= ~(0b111 << (3*outLine));
+	muxState |= (inLine & 0b111) << (3*outLine);
+}
+
+void NVM_Init(){
+	// Set 1 wait states
+	//NVMCTRL->CTRLB.bit.RWS = 1;
+	//NVMCTRL->CTRLB.bit.READMODE = 0x1;
+	
+    /* Setup EEPROM emulator service */
+    enum status_code error_code = rww_eeprom_emulator_init();
+    if (error_code == STATUS_ERR_NO_MEMORY) {
+        while (true) {
+            /* No EEPROM section has been set in the device's fuses */
+			PORT->Group[0].OUTSET.reg = 1 << 31;
+        }
+    }
+    else if (error_code != STATUS_OK) {
+        /* Erase the emulated EEPROM memory (assume it is unformatted or
+         * irrecoverably corrupt) */
+        rww_eeprom_emulator_erase_memory();
+        rww_eeprom_emulator_init();
+    }
+	
+	rww_eeprom_emulator_read_page(0, eeprom_buff);
+	pageNum = 0;
+}
+
+void Scan_EEPROM(){
+	if (pageNum != 0){
+		rww_eeprom_emulator_read_page(0, eeprom_buff);
+		pageNum = 0;
+	}
+	
+	// Initialize settings
+	if (eeprom_buff[RWW_EEPROM_PAGE_SIZE-1] != 69){
+		currentSettings.channel = 1;
+		currentSettings.bank = 0;
+		currentSettings.group = 1;
+		Save_Settings();
+	} else {
+		currentSettings.group = eeprom_buff[0];
+		currentSettings.channel = eeprom_buff[1];
+		currentSettings.bank = (eeprom_buff[3] << 8) | eeprom_buff[2];
+	}
+	
+	for (uint8_t i = 0; i < 128; i++){
+		Profile_t temp = Load_Profile(i);
+		
+		if (temp.program == i){
+			uint16_t tempPage = ((4*i) / RWW_EEPROM_PAGE_SIZE);
+			uint8_t tempIndex = i - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
+			savedProfiles[tempPage] |= 1 << tempIndex;
+		}
+	}
+	
+}
+
+Profile_t Load_Profile(uint8_t index){
+	uint16_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE) + 1;
+	if (tempPage != pageNum){
+		rww_eeprom_emulator_read_page(tempPage, eeprom_buff);
+		pageNum = tempPage;
+		savedProfiles[tempPage-1] = 0;
+	}
+	uint8_t tempOffset = 4*index - (tempPage-1)*RWW_EEPROM_PAGE_SIZE;
+	Profile_t temp;
+	temp.muxState = (eeprom_buff[tempOffset + 2] << 16) | (eeprom_buff[tempOffset + 1] << 8) | eeprom_buff[tempOffset];
+	temp.program = eeprom_buff[tempOffset + 3];
+	return temp;
+}
+
+void Load_EEPROM(uint8_t index){
+	uint8_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE);
+	uint8_t tempIndex = index - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
+	if (savedProfiles[tempPage] & (1 << tempIndex)){
+		Profile_t temp = Load_Profile(index);
+		
+		muxState = temp.muxState;
+		for(uint8_t i = 0; i < 8; i++){
+			uint8_t source;
+			source = (muxState >> (3*i)) & 0b111;
+			Set_Mux(source, i);
+		}
+	}
+}
+
+void Save_EEPROM(uint8_t index){
+	uint16_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE) + 1;
+	if (tempPage != pageNum){
+		rww_eeprom_emulator_read_page(tempPage, eeprom_buff);
+		pageNum = tempPage;
+		savedProfiles[tempPage-1] = 0;
+	}
+	uint8_t tempOffset = 4*index - (tempPage-1)*RWW_EEPROM_PAGE_SIZE;
+	
+	eeprom_buff[tempOffset] = muxState & 0xff;
+	eeprom_buff[tempOffset + 1] = (muxState >> 8) & 0xff;
+	eeprom_buff[tempOffset + 2] = (muxState >> 16) & 0xff;
+	eeprom_buff[tempOffset + 3] = index;
+	
+	rww_eeprom_emulator_write_page(tempPage, eeprom_buff);
+	rww_eeprom_emulator_commit_page_buffer();
+	
+	tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE);
+	uint8_t tempIndex = index - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
+	savedProfiles[tempPage] |= 1 << tempIndex;
+	
+	sysState = SysState_t::idle;
+}
+
+void Save_Settings(){
+	if (pageNum != 0){
+		rww_eeprom_emulator_read_page(0, eeprom_buff);
+		pageNum = 0;
+	}
+	
+	eeprom_buff[RWW_EEPROM_PAGE_SIZE-1] = 69;
+	eeprom_buff[0] = currentSettings.group;
+	eeprom_buff[1] = currentSettings.channel;
+	eeprom_buff[2] = currentSettings.bank & 0xff;
+	eeprom_buff[3] = currentSettings.bank >> 8;
+	
+	rww_eeprom_emulator_write_page(0, eeprom_buff);
+	rww_eeprom_emulator_commit_page_buffer();
 }
 
 void Receive_CAN(CAN_Rx_msg_t* msg){
@@ -163,11 +373,40 @@ void Receive_CAN(CAN_Rx_msg_t* msg){
 }
 
 void MIDI2_Handler(MIDI2_voice_t* msg){
-	
+	if ((msg->group != currentSettings.group) || (msg->channel != currentSettings.channel)){
+		return;
+	}
+	if (msg->status == MIDI2_VOICE_E::ProgChange){
+		if (msg->options & 1){
+			currentBank = msg->bankPC;
+		}
+		if (currentBank == currentSettings.bank){
+			if (sysState == SysState_t::waitMIDI){
+				Save_EEPROM(msg->program);
+			} else {
+				Load_EEPROM(msg->program);
+			}
+		}
+	}
 }
 
 void MIDI1_Handler(MIDI1_msg_t* msg){
-	
+	Settings_t msgSettings;
+	msgSettings.group = msg->group;
+	msgSettings.channel = msg->channel;
+	msgSettings.bank = currentBank;
+	if (msg->status == MIDI1_STATUS_E::ProgChange){
+		if (msgSettings.word == currentSettings.word){
+			if (sysState == SysState_t::waitMIDI){
+				Save_EEPROM(msg->instrument);
+			} else {
+				Load_EEPROM(msg->instrument);
+			}
+		}
+	} else if (msg->status == MIDI1_STATUS_E::CControl){
+		// Change bank???
+		
+	}
 }
 
 void SERCOM1_Handler(){
