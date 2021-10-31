@@ -65,11 +65,17 @@
 // From module: Interrupt management - SAM implementation
 #include <interrupt.h>
 
+// From module: NVM - Non-Volatile Memory
+#include <nvm.h>
+
 // From module: PORT - GPIO Pin Control
 #include <port.h>
 
 // From module: Part identification macros
 #include <parts.h>
+
+// From module: Read While Write EEPROM Emulator Service
+#include <rww_eeprom.h>
 
 // From module: SYSTEM - Clock Management for SAMD21/R21/DA/HA
 #include <clock.h>

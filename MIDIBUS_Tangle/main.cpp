@@ -11,6 +11,7 @@
 #include "MIDI_Config.h"
 #include "MCP2517.h"
 #include "MIDI_Driver.h"
+#include "rww_eeprom.h"
 
 MCP2517_C CAN(SERCOM1);
 
