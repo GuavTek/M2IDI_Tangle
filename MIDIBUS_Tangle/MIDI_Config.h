@@ -98,13 +98,13 @@ const CAN_Config_t CAN_CONF = {
 	.enableIsoCrc = true,
 	.deviceNetFilterBits = 0,
 	.nominalBaudPrescaler = 1,	// Time quanta prescaler Tq = 2/20MHz = 100ns
-	.nominalTSEG1 = 5,			// Time segment 1 = 6 Tq
-	.nominalTSEG2 = 2,			// Time segment 2 = 3 Tq
+	.nominalTSEG1 = 6,			// Time segment 1 = 7 Tq
+	.nominalTSEG2 = 1,			// Time segment 2 = 2 Tq
 	.nominalSyncJump = 0,		// Sync jump width = 1 Tq
-	.dataBaudPrescaler = 1,
-	.dataTSEG1 = 5,
-	.dataTSEG2 = 2,
-	.dataSyncJump = 0,
+	.dataBaudPrescaler = 0,		// Time quanta Tq = 1/20MHz = 50ns
+	.dataTSEG1 = 1,				// 2 Tq
+	.dataTSEG2 = 1,				// 2 Tq
+	.dataSyncJump = 0,			// 1 Tq
 	.enableEdgeFilter = true,
 	.enableSID11 = false,
 	.txDelayCompensation = CAN_Config_t::TdcAuto,
