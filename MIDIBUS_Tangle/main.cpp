@@ -9,13 +9,20 @@
 #include "sam.h"
 #include <asf.h>
 #include "MIDI_Config.h"
+#include "SPI_SAMD.h"
 #include "MCP2517.h"
 #include "MIDI_Driver.h"
 #include "rww_eeprom.h"
 #include "mux.h"
 
-MCP2517_C CAN(SERCOM1);
+SPI_SAMD_C SPI_CAN(SERCOM1);
+MCP2517_C CAN(&SPI_CAN);
 
+SPI_SAMD_C SPI_MEM(SERCOM2);
+// TODO: EEPROM driver
+
+uint32_t midiID;
+bool rerollID = false;
 MIDI_C MIDI(2);
 
 struct Settings_t {
@@ -39,10 +46,16 @@ struct Profile_t {
 	};
 };
 
+void Button_Handler();
+
 void Receive_CAN(CAN_Rx_msg_t* msg);
+void Receive_CAN_Payload(char* data, uint8_t length);
+void Check_CAN_Int();
 
 void MIDI2_Handler(MIDI2_voice_t* msg);
 void MIDI1_Handler(MIDI1_msg_t* msg);
+void MIDI_Stream_Handler(MIDI2_stream_t* msg);
+void MIDI_Data_Handler(MIDI_UMP_t* msg);
 
 void RTC_Init();
 
@@ -78,13 +91,8 @@ enum SysState_t{
 	}sysState;
 uint8_t firstButton;
 
-int main(void)
-{
+int main(void){
 	system_init();
-	CAN.Init(CAN_CONF, SPI_CAN_CONF);
-	CAN.Set_Rx_Callback(Receive_CAN);
-	RTC_Init();
-	
 	
 	// Set button group select as output
 	pin_dirset(BUTT_X, 1);
@@ -104,78 +112,57 @@ int main(void)
 	// Enable input and pullup for CAN_INT pin
 	pin_cfg(CAN_INT, 1, 1);
 	
+	// Initialize Hardware drivers
+	SPI_CAN.Init(SPI_CAN_CONF);
+	SPI_MEM.Init(SPI_MEM_CONF);
 	Mux_Init();
-	NVM_Init();
+	RTC_Init();
 	
-	Scan_EEPROM();
-	Load_EEPROM(0);
+	// Enable interrupts
+	NVIC_EnableIRQ(SERCOM1_IRQn);
+	NVIC_EnableIRQ(SERCOM2_IRQn);
+	NVIC_EnableIRQ(SERCOM5_IRQn);
+	system_interrupt_enable_global();
 	
+	// Initialize high-level drivers
+	NVM_Init();	// TODO: move to separate repo
+		
+	CAN.Set_Rx_Header_Callback(Receive_CAN);
+	CAN.Set_Rx_Data_Callback(Receive_CAN_Payload);
+	CAN.Init(CAN_CONF);
 	
 	MIDI.Set_handler(MIDI2_Handler);
 	MIDI.Set_handler(MIDI1_Handler);
+	MIDI.Set_handler(MIDI_Stream_Handler);
+	MIDI.Set_handler(MIDI_Data_Handler);
+	MIDI.Set_channel_mask(0xffff);
+	MIDI.Set_group_mask(0xffff);
 	
-	NVIC_EnableIRQ(SERCOM1_IRQn);
-	system_interrupt_enable_global();
+	// Randomize ID
+	midiID = rand();
+	rerollID = true;
+	
+	// Scan memory
+	Scan_EEPROM();
+	Load_EEPROM(0);
 	
     while (1){
-		CAN.State_Machine();
+		
+		if (rerollID){
+			rerollID = false;
+			CAN_Filter_t tempFilt = CAN_FLT3;
+			tempFilt.ID = midiID & 0x7f;
+			CAN.Reconfigure_Filter(&tempFilt, 3);
+		}
 		
 		static uint32_t buttonTimer = 0;
 		if (RTC->MODE0.COUNT.reg > buttonTimer){
 			buttonTimer = RTC->MODE0.COUNT.reg + 10;
-			
-			// Read Buttons
-			uint8_t temp;
-			temp = pin_inget(BUTT_A) ? 0 : 0b0001;
-			temp |= pin_inget(BUTT_B) ? 0 : 0b0010;
-			temp |= pin_inget(BUTT_C) ? 0 : 0b0100;
-			temp |= pin_inget(BUTT_D) ? 0 : 0b1000;
-			
-			buttonState &= ~(0xf << readOffset);
-			buttonState |= (temp & 0xf) << readOffset;
-			
-			for (uint8_t i = 0; i < 4; i++){
-				if (buttonState & (1 << (i + readOffset))){
-					if (!(buttonStatePrev & (1 << (i + readOffset)))){
-						pin_outset(LED1, 1);
-						// Rising edge
-						buttonHold = 0;
-						if (sysState == SysState_t::firstButt){
-							// Second press
-							sysState = SysState_t::idle;
-							Mux_Set(buttonNum, i + readOffset);
-							buttonNum = 32;
-						} else {
-							// First press
-							sysState = SysState_t::firstButt;
-							buttonNum = i + readOffset;	
-						}
-					}
-					if ((i + readOffset) == buttonNum){
-						if (buttonHold >= 200){
-							sysState = SysState_t::waitMIDI;
-						} else {
-							// Hold timer
-							buttonHold++;
-						}
-						
-					}
-				}
-			}
-			
-			buttonStatePrev = buttonState;
-			
-			// Switch button select
-			if (readOffset){
-				readOffset = 0;
-				pin_outset(BUTT_X, 0);
-				pin_outset(BUTT_Y, 1);
-			} else {
-				readOffset = 4;
-				pin_outset(BUTT_X, 1);
-				pin_outset(BUTT_Y, 0);
-			}
-			
+			Button_Handler();
+		}
+		
+		if (CAN.Ready()){
+			Check_CAN_Int();
 		}
 		
 		static uint32_t ledTimer = 0;
@@ -193,6 +180,61 @@ int main(void)
     }
 }
 
+void Button_Handler(){
+	// Read Buttons
+	uint8_t temp;
+	temp = pin_inget(BUTT_A) ? 0 : 0b0001;
+	temp |= pin_inget(BUTT_B) ? 0 : 0b0010;
+	temp |= pin_inget(BUTT_C) ? 0 : 0b0100;
+	temp |= pin_inget(BUTT_D) ? 0 : 0b1000;
+	
+	buttonState &= ~(0xf << readOffset);
+	buttonState |= (temp & 0xf) << readOffset;
+	
+	for (uint8_t i = 0; i < 4; i++){
+		if (buttonState & (1 << (i + readOffset))){
+			if (!(buttonStatePrev & (1 << (i + readOffset)))){
+				pin_outset(LED1, 1);
+				// Rising edge
+				buttonHold = 0;
+				if (sysState == SysState_t::firstButt){
+					// Second press
+					sysState = SysState_t::idle;
+					Mux_Set(buttonNum, i + readOffset);
+					Mux_Update();
+					buttonNum = 32;
+					} else {
+					// First press
+					sysState = SysState_t::firstButt;
+					buttonNum = i + readOffset;
+				}
+			}
+			if ((i + readOffset) == buttonNum){
+				if (buttonHold >= 200){
+					sysState = SysState_t::waitMIDI;
+					} else {
+					// Hold timer
+					buttonHold++;
+				}
+				
+			}
+		}
+	}
+	
+	buttonStatePrev = buttonState;
+	
+	// Switch button select
+	if (readOffset){
+		readOffset = 0;
+		pin_outset(BUTT_X, 0);
+		pin_outset(BUTT_Y, 1);
+		} else {
+		readOffset = 4;
+		pin_outset(BUTT_X, 1);
+		pin_outset(BUTT_Y, 0);
+	}
+}
+
 void RTC_Init(){
 	// Enable clock
 	PM->APBAMASK.bit.RTC_ = 1;
@@ -207,6 +249,12 @@ void RTC_Init(){
 	RTC->MODE0.CTRL.bit.PRESCALER = RTC_MODE0_CTRL_PRESCALER_DIV32_Val;
 	
 	RTC->MODE0.CTRL.bit.ENABLE = 1;
+}
+
+void Check_CAN_Int(){
+	if (!pin_inget(CAN_INT)){
+		CAN.Check_Rx();
+	}
 }
 
 void NVM_Init(){
@@ -289,6 +337,7 @@ void Load_EEPROM(uint8_t index){
 			source = (muxState >> (3*i)) & 0b111;
 			Mux_Set(source, i);
 		}
+		Mux_Update();
 	}
 }
 
@@ -333,8 +382,15 @@ void Save_Settings(){
 }
 
 void Receive_CAN(CAN_Rx_msg_t* msg){
-	uint8_t length = CAN.Get_Data_Length(msg->dataLengthCode);
-	MIDI.Decode(msg->payload, length);
+	if (!msg->extendedID && ((msg->id & 0x7F) == (midiID & 0x7F))){
+		// Received an undirected message using the same ID. Reconfigure.
+		rerollID = true;
+		midiID = rand();
+	}
+}
+
+void Receive_CAN_Payload(char* data, uint8_t length){
+	MIDI.Decode(data, length);
 }
 
 void MIDI2_Handler(MIDI2_voice_t* msg){
@@ -374,6 +430,18 @@ void MIDI1_Handler(MIDI1_msg_t* msg){
 	}
 }
 
+void MIDI_Stream_Handler(MIDI2_stream_t* msg){
+	// TODO: Figure out what data is being asked for and set flags to respond in main
+}
+
+void MIDI_Data_Handler(MIDI_UMP_t* msg){
+	// TODO: implement Capability exchange features
+}
+
 void SERCOM1_Handler(){
-	CAN.Handler();
+	SPI_CAN.Handler();
+}
+
+void SERCOM2_Handler(){
+	SPI_MEM.Handler();
 }

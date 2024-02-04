@@ -625,10 +625,10 @@
     <Compile Include="MCP2517_ATSAMD_driver\MCP2517.h">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="MCP2517_ATSAMD_driver\SPI.cpp">
+    <Compile Include="MCP2517_ATSAMD_driver\SPI_SAMD.cpp">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="MCP2517_ATSAMD_driver\SPI.h">
+    <Compile Include="MCP2517_ATSAMD_driver\SPI_SAMD.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="MIDI_Config.h">

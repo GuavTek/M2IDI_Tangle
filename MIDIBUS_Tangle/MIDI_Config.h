@@ -10,34 +10,59 @@
 #ifndef MIDI_CONFIG_H_
 #define MIDI_CONFIG_H_
 
+#include "SPI_SAMD.h"
 #include "MCP2517.h"
 
-uint32_t midiID = 123;
-
 // Define CAN filters
-CAN_Filter_t CAN_FLT0 = {
+// Module will need stream type to define function blocks,
+// Sysex types for capability exchange, voice types for program change messages
+
+// Regular input. MIDI 1.0 channel (0x2), sysex 7-bit (0x3)
+const CAN_Filter_t CAN_FLT0 = {
 	.enabled = true,
 	.fifoDestination = 1,
 	.extendedID = false,
-	.ID = (0 << 10),
+	.ID = 0b0010 << 7,
 	.matchBothIDTypes = false,
-	.maskID = 1 << 10
+	.maskID = 0b1110 << 7
 };
 
-CAN_Filter_t CAN_FLT1 = {
+// Regular input. MIDI 2.0 channel (0x4), sysex 8-bit (0x5)
+const CAN_Filter_t CAN_FLT1 = {
 	.enabled = true,
 	.fifoDestination = 1,
 	.extendedID = false,
-	.ID = (1 << 10) | (midiID & 0x3ff),
+	.ID = 0b0100 << 7,
 	.matchBothIDTypes = false,
-	.maskID = 0x7ff
+	.maskID = 0b1110 << 7
+};
+
+// Regular input. Stream data (0xf)
+const CAN_Filter_t CAN_FLT2 = {
+	.enabled = true,
+	.fifoDestination = 1,
+	.extendedID = false,
+	.ID = 0b1111 << 7,
+	.matchBothIDTypes = false,
+	.maskID = 0b1111 << 7
+};
+
+// Targeted input. Match messages with extended CAN id
+const CAN_Filter_t CAN_FLT3 = {
+	.enabled = true,
+	.fifoDestination = 1,
+	.extendedID = true,
+	.ID = 69,	// Temporary value, will be changed in runtime
+	.matchBothIDTypes = false,
+	.maskID = 0x07f
 };
 
 // Define FIFO configurations
-CAN_FIFO_t CAN_FIFO1 = {
+// Rx FIFO
+const CAN_FIFO_t CAN_FIFO1 = {
 	.enabled = true,
-	.payloadSize = 16,
-	.fifoDepth = 31,
+	.payloadSize = 64,
+	.fifoDepth = 18,
 	.retransmitAttempt = CAN_FIFO_t::unlimited,
 	.messagePriority = 0,
 	.txEnable = false,
@@ -50,10 +75,11 @@ CAN_FIFO_t CAN_FIFO1 = {
 	.notFullEmptyInterrupt = true
 };
 
-CAN_FIFO_t CAN_FIFO2 = {
+// Tx FIFO
+const CAN_FIFO_t CAN_FIFO2 = {
 	.enabled = true,
-	.payloadSize = 16,
-	.fifoDepth = 31,
+	.payloadSize = 64,
+	.fifoDepth = 8,
 	.retransmitAttempt = CAN_FIFO_t::unlimited,
 	.messagePriority = 0,
 	.txEnable = true,
@@ -72,10 +98,11 @@ const spi_config_t SPI_CAN_CONF = {
 	.dipoVal = 0x0,
 	.dopoVal = 0x1,
 	.speed = 8000000,
-	.pin_cs = PIN_PA17,
 	.pinmux_mosi = PINMUX_PA18C_SERCOM1_PAD2,
 	.pinmux_miso = PINMUX_PA16C_SERCOM1_PAD0,
-	.pinmux_sck = PINMUX_PA19C_SERCOM1_PAD3
+	.pinmux_sck = PINMUX_PA19C_SERCOM1_PAD3,
+	.num_cs = 1,
+	.pin_cs = {PIN_PA17}
 };
 
 const spi_config_t SPI_MEM_CONF = {
@@ -83,15 +110,15 @@ const spi_config_t SPI_MEM_CONF = {
 	.dipoVal = 0x0,
 	.dopoVal = 0x1,
 	.speed = 8000000,
-	.pin_cs = PIN_PA13,
 	.pinmux_mosi = PINMUX_PA14C_SERCOM2_PAD2,
 	.pinmux_miso = PINMUX_PA12C_SERCOM2_PAD0,
-	.pinmux_sck = PINMUX_PA15C_SERCOM2_PAD3
+	.pinmux_sck = PINMUX_PA15C_SERCOM2_PAD3,
+	.num_cs = 1,
+	.pin_cs = {PIN_PA13}
 };
 
 const CAN_Config_t CAN_CONF = {
-	.rxMethod = CAN_Config_t::CAN_Rx_RTC,
-	.interruptPin = 0,
+	.comSlaveNum = 0,
 	.clkOutDiv = CAN_Config_t::clkOutDiv1,
 	.sysClkDiv = false,
 	.clkDisable = false,
