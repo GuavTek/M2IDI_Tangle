@@ -108,23 +108,23 @@ int main(void)
 	RTC_Init();
 	
 	
-	// Set MUX controls as outputs
-	PORT->Group[0].DIRSET.reg = 0x18f0fff3;
-	PORT->Group[1].DIRSET.reg = 0x00c00300;
-	
 	// Set button group select as output
-	PORT->Group[1].DIRSET.reg = 0x0000000c;
-	PORT->Group[1].OUTSET.reg = 1 << 3;
+	pin_dirset(BUTT_X, 1);
+	pin_dirset(BUTT_Y, 1);
+	pin_outset(BUTT_Y, 1);
 	
-	// Set LED as output (Disable for debugging)
-	PORT->Group[0].DIRSET.reg = 1 << 31;
-	PORT->Group[0].OUTCLR.reg = 1 << 31;
+	// Set LED as output
+	pin_dirset(LED1, 1);
+	pin_outset(LED1, 0);
 	
 	// Enable input on button pins
-	PORT->Group[0].PINCFG[2].bit.INEN = 1;
-	PORT->Group[0].PINCFG[3].bit.INEN = 1;
-	PORT->Group[1].PINCFG[10].bit.INEN = 1;
-	PORT->Group[1].PINCFG[11].bit.INEN = 1;
+	pin_cfg(BUTT_A, 1, 0);
+	pin_cfg(BUTT_B, 1, 0);
+	pin_cfg(BUTT_C, 1, 0);
+	pin_cfg(BUTT_D, 1, 0);
+	
+	// Enable input and pullup for CAN_INT pin
+	pin_cfg(CAN_INT, 1, 1);
 	
 	NVM_Init();
 	
@@ -147,10 +147,10 @@ int main(void)
 			
 			// Read Buttons
 			uint8_t temp;
-			temp = (PORT->Group[1].IN.reg & (1 << 10)) ? 0 : 0b0001;
-			temp |= (PORT->Group[1].IN.reg & (1 << 11)) ? 0 : 0b0010;
-			temp |= (PORT->Group[0].IN.reg & (1 << 3)) ? 0 : 0b0100;
-			temp |= (PORT->Group[0].IN.reg & (1 << 2)) ? 0 : 0b1000;
+			temp = pin_inget(BUTT_A) ? 0 : 0b0001;
+			temp |= pin_inget(BUTT_B) ? 0 : 0b0010;
+			temp |= pin_inget(BUTT_C) ? 0 : 0b0100;
+			temp |= pin_inget(BUTT_D) ? 0 : 0b1000;
 			
 			buttonState &= ~(0xf << readOffset);
 			buttonState |= (temp & 0xf) << readOffset;
@@ -158,7 +158,7 @@ int main(void)
 			for (uint8_t i = 0; i < 4; i++){
 				if (buttonState & (1 << (i + readOffset))){
 					if (!(buttonStatePrev & (1 << (i + readOffset)))){
-						PORT->Group[0].OUTSET.reg = 1 << 31;
+						pin_outset(LED1, 1);
 						// Rising edge
 						buttonHold = 0;
 						if (sysState == SysState_t::firstButt){
@@ -189,26 +189,26 @@ int main(void)
 			// Switch button select
 			if (readOffset){
 				readOffset = 0;
-				PORT->Group[1].OUTCLR.reg = 1 << 3;
-				PORT->Group[1].OUTSET.reg = 1 << 2;
+				pin_outset(BUTT_X, 0);
+				pin_outset(BUTT_Y, 1);
 			} else {
 				readOffset = 4;
-				PORT->Group[1].OUTCLR.reg = 1 << 2;
-				PORT->Group[1].OUTSET.reg = 1 << 3;
+				pin_outset(BUTT_X, 1);
+				pin_outset(BUTT_Y, 0);
 			}
 			
 		}
 		
 		static uint32_t ledTimer = 0;
 		if (sysState == SysState_t::firstButt){
-			PORT->Group[0].OUTSET.reg = 1 << 31;
+			pin_outset(LED1, 1);
 		} else if (sysState == SysState_t::waitMIDI){
 			if (ledTimer <= RTC->MODE0.COUNT.reg){
 				ledTimer = RTC->MODE0.COUNT.reg + 200;
-				PORT->Group[0].OUTTGL.reg = 1 << 31;
+				pin_outtgl(LED1);
 			}
 		} else {
-			PORT->Group[0].OUTCLR.reg = 1 << 31;
+			pin_outset(LED1, 0);
 		}
 		
     }
@@ -254,7 +254,7 @@ void NVM_Init(){
     if (error_code == STATUS_ERR_NO_MEMORY) {
         while (true) {
             /* No EEPROM section has been set in the device's fuses */
-			PORT->Group[0].OUTSET.reg = 1 << 31;
+			pin_outset(LED1, 1);
         }
     }
     else if (error_code != STATUS_OK) {

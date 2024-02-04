@@ -39,6 +39,48 @@
 
 #define F_CPU 48000000
 
+// Define IO pins
+#define BUTT_X PIN_PB03
+#define BUTT_Y PIN_PB02
+#define BUTT_A PIN_PB10
+#define BUTT_B PIN_PB11
+#define BUTT_D PIN_PA02
+#define BUTT_C PIN_PA03
+#define BUTT_PROG PIN_PA08
+#define SHIFT_STROBE PIN_PA27
+#define SHIFT_DATA PINMUX_PB22D_SERCOM5_PAD2
+#define SHIFT_CLK PINMUX_PB23D_SERCOM5_PAD3
+#define LED1 PIN_PA28
+#define CAN_INT PIN_PA20
+
+inline void pin_dirset(uint32_t pinNum, uint8_t dir){
+	if (dir){
+		PORT->Group[pinNum/32].DIRSET.reg = 1 << (pinNum % 32);
+	} else {
+		PORT->Group[pinNum/32].DIRCLR.reg = 1 << (pinNum % 32);
+	}
+}
+
+inline void pin_outset(uint32_t pinNum, uint8_t state){
+	if (state){
+		PORT->Group[pinNum/32].OUTSET.reg = 1 << (pinNum % 32);
+	} else {
+		PORT->Group[pinNum/32].OUTCLR.reg = 1 << (pinNum % 32);
+	}
+}
+
+inline uint8_t pin_inget(uint32_t pinNum){
+	return (PORT->Group[pinNum/32].IN.reg >> (pinNum % 32)) & 1;
+}
+
+inline void pin_outtgl(uint32_t pinNum){
+	PORT->Group[pinNum/32].OUTTGL.reg = 1 << (pinNum % 32);
+}
+
+inline void pin_cfg(uint32_t pinNum, uint8_t inEn, uint8_t pullEn){
+	PORT->Group[pinNum/32].PINCFG[pinNum % 32].reg = (inEn << PORT_PINCFG_INEN)| (pullEn << PORT_PINCFG_PULLEN);
+}
+
 static void pin_set_peripheral_function(uint32_t pinmux){
 	uint8_t port = (uint8_t)((pinmux >> 16)/32);
 	PORT->Group[port].PMUX[((pinmux >> 16) - (port*32))/2].reg &= ~(0xF << (4 * ((pinmux >> 16) & 0x01u)));
