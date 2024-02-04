@@ -12,6 +12,7 @@
 #include "MCP2517.h"
 #include "MIDI_Driver.h"
 #include "rww_eeprom.h"
+#include "mux.h"
 
 MCP2517_C CAN(SERCOM1);
 
@@ -45,7 +46,6 @@ void MIDI1_Handler(MIDI1_msg_t* msg);
 
 void RTC_Init();
 
-void Set_Mux(uint8_t inLine, uint8_t outLine);
 void NVM_Init();
 void Scan_EEPROM();
 Profile_t Load_Profile(uint8_t index);
@@ -54,31 +54,9 @@ void Save_EEPROM(uint8_t index);
 void Clear_EEPROM(uint8_t index);
 void Save_Settings();
 
-// Translate output number to pin levels
-const uint8_t MuxOut[8][8] = {
-	{0b010, 0b110, 0b011, 0b111, 0b000, 0b100, 0b001, 0b101},
-	{0b010, 0b110, 0b011, 0b111, 0b000, 0b100, 0b001, 0b101},
-	{0b010, 0b110, 0b011, 0b111, 0b000, 0b100, 0b001, 0b101},
-	{0b010, 0b110, 0b011, 0b111, 0b000, 0b100, 0b001, 0b101},
-	{0b000, 0b100, 0b001, 0b101, 0b010, 0b110, 0b011, 0b111},
-	{0b000, 0b100, 0b001, 0b101, 0b010, 0b110, 0b011, 0b111},
-	{0b000, 0b100, 0b001, 0b101, 0b010, 0b110, 0b011, 0b111},
-	{0b000, 0b100, 0b001, 0b101, 0b010, 0b110, 0b011, 0b111}};
-		
-const uint8_t MuxPins[8][3] = {
-	{PIN_PA08, PIN_PA07, PIN_PA06},
-	{PIN_PA11, PIN_PA10, PIN_PA09},
-	{PIN_PA00, PIN_PA01, PIN_PB08},
-	{PIN_PA05, PIN_PA04, PIN_PB09},
-	{PIN_PA12, PIN_PA14, PIN_PA13},
-	{PIN_PA28, PIN_PB23, PIN_PA27},
-	{PIN_PA20, PIN_PA15, PIN_PA21},
-	{PIN_PA22, PIN_PB22, PIN_PA23}};
-
 uint8_t eeprom_buff[RWW_EEPROM_PAGE_SIZE];
 uint8_t pageNum;
 	
-uint32_t muxState = 0;
 uint16_t savedProfiles[128*4/RWW_EEPROM_PAGE_SIZE];
 		
 uint8_t buttonState;
@@ -126,6 +104,7 @@ int main(void)
 	// Enable input and pullup for CAN_INT pin
 	pin_cfg(CAN_INT, 1, 1);
 	
+	Mux_Init();
 	NVM_Init();
 	
 	Scan_EEPROM();
@@ -164,7 +143,7 @@ int main(void)
 						if (sysState == SysState_t::firstButt){
 							// Second press
 							sysState = SysState_t::idle;
-							Set_Mux(buttonNum, i + readOffset);
+							Mux_Set(buttonNum, i + readOffset);
 							buttonNum = 32;
 						} else {
 							// First press
@@ -228,20 +207,6 @@ void RTC_Init(){
 	RTC->MODE0.CTRL.bit.PRESCALER = RTC_MODE0_CTRL_PRESCALER_DIV32_Val;
 	
 	RTC->MODE0.CTRL.bit.ENABLE = 1;
-}
-
-void Set_Mux(uint8_t inLine, uint8_t outLine){
-	for (uint8_t i = 0; i < 3; i++){
-		uint8_t grp = MuxPins[outLine][i] / 32;
-		uint8_t pin = MuxPins[outLine][i] - 32 * grp;
-		if (MuxOut[outLine][inLine] & (1 << i)){
-			PORT->Group[grp].OUTSET.reg = 1 << pin;
-		} else {
-			PORT->Group[grp].OUTCLR.reg = 1 << pin;
-		}
-	}
-	muxState &= ~(0b111 << (3*outLine));
-	muxState |= (inLine & 0b111) << (3*outLine);
 }
 
 void NVM_Init(){
@@ -322,7 +287,7 @@ void Load_EEPROM(uint8_t index){
 		for(uint8_t i = 0; i < 8; i++){
 			uint8_t source;
 			source = (muxState >> (3*i)) & 0b111;
-			Set_Mux(source, i);
+			Mux_Set(source, i);
 		}
 	}
 }
