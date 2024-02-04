@@ -6,7 +6,7 @@
  */ 
 
 
-#include "samd21g15b.h"
+#include "sam.h"
 #include <asf.h>
 #include "MIDI_Config.h"
 #include "MCP2517.h"
@@ -81,7 +81,7 @@ uint8_t firstButton;
 int main(void)
 {
 	system_init();
-	CAN.Init(CAN_CONF, SPI_CONF);
+	CAN.Init(CAN_CONF, SPI_CAN_CONF);
 	CAN.Set_Rx_Callback(Receive_CAN);
 	RTC_Init();
 	
