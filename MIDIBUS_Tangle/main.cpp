@@ -11,19 +11,11 @@
 #include "MIDI_Config.h"
 #include "SPI_SAMD.h"
 #include "MCP2517.h"
+#include "eeprom_cat.h"
 #include "MIDI_Driver.h"
-#include "rww_eeprom.h"
 #include "mux.h"
+#include "conf_board.h"
 
-SPI_SAMD_C SPI_CAN(SERCOM1);
-MCP2517_C CAN(&SPI_CAN);
-
-SPI_SAMD_C SPI_MEM(SERCOM2);
-// TODO: EEPROM driver
-
-uint32_t midiID;
-bool rerollID = false;
-MIDI_C MIDI(2);
 
 struct Settings_t {
 	union{
@@ -36,15 +28,31 @@ struct Settings_t {
 	};
 };
 
-struct Profile_t {
-	union{
-		uint32_t word;
-		struct{
-			uint8_t program;
-			uint32_t muxState : 24;
-		};
-	};
+const eeprom_cat_conf_t EEPROM_CONF = {
+	.comSlaveNum = 0,
+	.maxAddr = 0x1fff
 };
+
+const eeprom_cat_section_t EEPROM_SECTIONS[2] = {
+	{	// Header, 320 byte
+		.offset = 0x0000,
+		.objectSize = 8 // Contains 40 chunks
+	},
+	{	// Main
+		.offset = 0x0140,
+		.objectSize = 3 // sizeof(muxstate)
+	}
+};
+
+SPI_SAMD_C SPI_CAN(SERCOM1);
+MCP2517_C CAN(&SPI_CAN);
+
+SPI_SAMD_C SPI_MEM(SERCOM2);
+eeprom_cat_c EEPROM(&SPI_MEM);
+
+uint32_t midiID;
+bool rerollID = false;
+MIDI_C MIDI(2);
 
 void Button_Handler();
 
@@ -59,19 +67,11 @@ void MIDI_Data_Handler(MIDI_UMP_t* msg);
 
 void RTC_Init();
 
-void NVM_Init();
+void mem_cb();
 void Scan_EEPROM();
-Profile_t Load_Profile(uint8_t index);
-void Load_EEPROM(uint8_t index);
-void Save_EEPROM(uint8_t index);
-void Clear_EEPROM(uint8_t index);
-void Save_Settings();
+void Load_Profile(uint8_t program, uint16_t bank);
+void Save_Profile(uint8_t program, uint16_t bank);
 
-uint8_t eeprom_buff[RWW_EEPROM_PAGE_SIZE];
-uint8_t pageNum;
-	
-uint16_t savedProfiles[128*4/RWW_EEPROM_PAGE_SIZE];
-		
 uint8_t buttonState;
 uint8_t buttonStatePrev;
 uint8_t readOffset = 0;
@@ -80,7 +80,16 @@ uint8_t buttonNum;
 uint8_t buttonHold;
 
 Settings_t currentSettings;
-uint16_t currentBank = 0;	// The Bank being accessed by MIDI
+uint16_t memBanks[20];
+char memBuff[8];
+uint8_t headPend[5];
+struct {
+	bool wr : 1;
+	bool rd : 1;
+	bool pendHead : 1;
+} memState;
+uint8_t validBanks;
+uint8_t nextBank;	// If a bank must be overwritten
 
 enum SysState_t{
 	idle,
@@ -88,7 +97,7 @@ enum SysState_t{
 	secondButt,
 	held,
 	waitMIDI
-	}sysState;
+}sysState;
 uint8_t firstButton;
 
 int main(void){
@@ -125,7 +134,8 @@ int main(void){
 	system_interrupt_enable_global();
 	
 	// Initialize high-level drivers
-	NVM_Init();	// TODO: move to separate repo
+	EEPROM.init(EEPROM_CONF, EEPROM_SECTIONS, 2);
+	EEPROM.set_callback(mem_cb);
 		
 	CAN.Set_Rx_Header_Callback(Receive_CAN);
 	CAN.Set_Rx_Data_Callback(Receive_CAN_Payload);
@@ -144,7 +154,7 @@ int main(void){
 	
 	// Scan memory
 	Scan_EEPROM();
-	Load_EEPROM(0);
+	Load_Profile(0, 0);
 	
     while (1){
 		
@@ -228,7 +238,7 @@ void Button_Handler(){
 		readOffset = 0;
 		pin_outset(BUTT_X, 0);
 		pin_outset(BUTT_Y, 1);
-		} else {
+	} else {
 		readOffset = 4;
 		pin_outset(BUTT_X, 1);
 		pin_outset(BUTT_Y, 0);
@@ -257,128 +267,143 @@ void Check_CAN_Int(){
 	}
 }
 
-void NVM_Init(){
-	// Set 1 wait states
-	//NVMCTRL->CTRLB.bit.RWS = 1;
-	//NVMCTRL->CTRLB.bit.READMODE = 0x1;
-	
-    /* Setup EEPROM emulator service */
-    enum status_code error_code = rww_eeprom_emulator_init();
-    if (error_code == STATUS_ERR_NO_MEMORY) {
-        while (true) {
-            /* No EEPROM section has been set in the device's fuses */
-			pin_outset(LED1, 1);
-        }
-    }
-    else if (error_code != STATUS_OK) {
-        /* Erase the emulated EEPROM memory (assume it is unformatted or
-         * irrecoverably corrupt) */
-        rww_eeprom_emulator_erase_memory();
-        rww_eeprom_emulator_init();
-    }
-	
-	rww_eeprom_emulator_read_page(0, eeprom_buff);
-	pageNum = 0;
+void mem_cb(){
+	if (memState.wr){
+		memState.wr = 0;
+		// Nuthin?
+	}
+	if (memState.rd){
+		memState.rd = 0;
+		// Load config into muxes
+		muxState = memBuff[0] | (memBuff[1] << 8) | (memBuff[2] << 16);
+		Mux_Update();
+	}
+	if (memState.pendHead){
+		// Figure out which part of the header has changed
+		int8_t index;
+		index = -1;
+		for (uint8_t i = 0; i < 5; i++){
+			if (headPend[i]){
+				index = i;
+				break;
+			}
+		}
+		if (index == -1){
+			memState.pendHead = 0;
+			return;
+		}
+		for (uint8_t i = 0; i < 8; i++){
+			if (headPend[index] & (1 << i)){
+				headPend[index] &= ~(1 << i);
+				index = index*8 + i;
+				break;
+			}
+		}
+		if (index >= 20){
+			uint8_t memIndex = index - 20;
+			memBuff[0] = memBanks[memIndex] & 0xff;
+			memBuff[1] = (memBanks[memIndex] >> 8) & 0xff;
+			memBuff[2] = 69;
+			EEPROM.write_data(&memBuff[0], 0, index);
+		} else if (index == 1){
+			memBuff[0] = nextBank;
+			EEPROM.write_data(&memBuff[0], 0, 1);
+		}
+	}
 }
 
 void Scan_EEPROM(){
-	if (pageNum != 0){
-		rww_eeprom_emulator_read_page(0, eeprom_buff);
-		pageNum = 0;
-	}
-	
-	// Initialize settings
-	if (eeprom_buff[RWW_EEPROM_PAGE_SIZE-1] != 69){
-		currentSettings.channel = 1;
-		currentSettings.bank = 0;
-		currentSettings.group = 1;
-		Save_Settings();
-	} else {
-		currentSettings.group = eeprom_buff[0];
-		currentSettings.channel = eeprom_buff[1];
-		currentSettings.bank = (eeprom_buff[3] << 8) | eeprom_buff[2];
-	}
-	
-	for (uint8_t i = 0; i < 128; i++){
-		Profile_t temp = Load_Profile(i);
+	char temp[8];
+	memState.pendHead = 0;
+	memState.rd = 0;
+	memState.wr = 0;
+	// Read version
+	EEPROM.read_data(temp, 0, 0);
+	while (SPI_MEM.Get_Status() != Idle);
+	if (temp[0] == 0){
+		// Initialize settings
+		temp[0] = 1;
+		EEPROM.write_data(temp, 0, 0);
+		while (SPI_MEM.Get_Status() != Idle);
 		
-		if (temp.program == i){
-			uint16_t tempPage = ((4*i) / RWW_EEPROM_PAGE_SIZE);
-			uint8_t tempIndex = i - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
-			savedProfiles[tempPage] |= 1 << tempIndex;
+		temp[0] = 0;
+		EEPROM.write_data(temp, 0, 1);
+		while (SPI_MEM.Get_Status() != Idle);
+		// Nothing saved
+		return;
+	}
+	
+	EEPROM.read_data(temp, 0, 1);
+	while (SPI_MEM.Get_Status() != Idle);
+	nextBank = temp[0];
+	
+	// Check which banks are saved
+	for (uint8_t i = 0; i < 20; i++){
+		EEPROM.read_data(temp, 0, 20+i);
+		while (SPI_MEM.Get_Status() != Idle);
+		if (temp[2] == 69){
+			validBanks++;
+			memBanks[i] = temp[0] | (temp[1] << 8);
+		} else {
+			break;
+		}
+	}
+}
+
+void Load_Profile(uint8_t program, uint16_t bank){
+	// Check if config exists
+	int8_t index = -1;
+	for (uint8_t i = 0; i < validBanks; i++){
+		if (bank == memBanks[i]){
+			index = i;
+			break;
+		}
+	}
+	if (index == -1){
+		// Nope
+		return;
+	}
+	
+	// Load config from eeprom
+	memState.rd = 1;
+	EEPROM.read_data(&memBuff[0], 1, index*384+program);
+}
+
+void Save_Profile(uint8_t program, uint16_t bank){
+	// Check if bank is in use
+	int8_t index = -1;
+	for (uint8_t i = 0; i < validBanks; i++){
+		if (bank == memBanks[i]){
+			index = i;
+			break;
+		}
+	}
+	if (index == -1){
+		if (validBanks < 20){
+			// Save new bank
+			index = validBanks;
+			memBanks[index] = bank;
+			uint8_t temp = 20 + index - 1;
+			headPend[temp/8] |= 1 << (temp % 8);
+			memState.pendHead = 1;
+			validBanks++;
+		} else {
+			// Overwrite oldest bank
+			index = nextBank;
+			memBanks[index] = bank;
+			uint8_t temp = 20 + index - 1;
+			headPend[temp/8] |= 1 << (temp % 8);
+			headPend[0] |= 1 << 1;
+			memState.pendHead = 1;
+			nextBank++;
 		}
 	}
 	
-}
-
-Profile_t Load_Profile(uint8_t index){
-	uint16_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE) + 1;
-	if (tempPage != pageNum){
-		rww_eeprom_emulator_read_page(tempPage, eeprom_buff);
-		pageNum = tempPage;
-		savedProfiles[tempPage-1] = 0;
-	}
-	uint8_t tempOffset = 4*index - (tempPage-1)*RWW_EEPROM_PAGE_SIZE;
-	Profile_t temp;
-	temp.muxState = (eeprom_buff[tempOffset + 2] << 16) | (eeprom_buff[tempOffset + 1] << 8) | eeprom_buff[tempOffset];
-	temp.program = eeprom_buff[tempOffset + 3];
-	return temp;
-}
-
-void Load_EEPROM(uint8_t index){
-	uint8_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE);
-	uint8_t tempIndex = index - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
-	if (savedProfiles[tempPage] & (1 << tempIndex)){
-		Profile_t temp = Load_Profile(index);
-		
-		muxState = temp.muxState;
-		for(uint8_t i = 0; i < 8; i++){
-			uint8_t source;
-			source = (muxState >> (3*i)) & 0b111;
-			Mux_Set(source, i);
-		}
-		Mux_Update();
-	}
-}
-
-void Save_EEPROM(uint8_t index){
-	uint16_t tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE) + 1;
-	if (tempPage != pageNum){
-		rww_eeprom_emulator_read_page(tempPage, eeprom_buff);
-		pageNum = tempPage;
-		savedProfiles[tempPage-1] = 0;
-	}
-	uint8_t tempOffset = 4*index - (tempPage-1)*RWW_EEPROM_PAGE_SIZE;
-	
-	eeprom_buff[tempOffset] = muxState & 0xff;
-	eeprom_buff[tempOffset + 1] = (muxState >> 8) & 0xff;
-	eeprom_buff[tempOffset + 2] = (muxState >> 16) & 0xff;
-	eeprom_buff[tempOffset + 3] = index;
-	
-	rww_eeprom_emulator_write_page(tempPage, eeprom_buff);
-	rww_eeprom_emulator_commit_page_buffer();
-	
-	tempPage = ((4*index) / RWW_EEPROM_PAGE_SIZE);
-	uint8_t tempIndex = index - tempPage * (RWW_EEPROM_PAGE_SIZE/4);
-	savedProfiles[tempPage] |= 1 << tempIndex;
-	
-	sysState = SysState_t::idle;
-}
-
-void Save_Settings(){
-	if (pageNum != 0){
-		rww_eeprom_emulator_read_page(0, eeprom_buff);
-		pageNum = 0;
-	}
-	
-	eeprom_buff[RWW_EEPROM_PAGE_SIZE-1] = 69;
-	eeprom_buff[0] = currentSettings.group;
-	eeprom_buff[1] = currentSettings.channel;
-	eeprom_buff[2] = currentSettings.bank & 0xff;
-	eeprom_buff[3] = currentSettings.bank >> 8;
-	
-	rww_eeprom_emulator_write_page(0, eeprom_buff);
-	rww_eeprom_emulator_commit_page_buffer();
+	// Write data to EEPROM chip
+	memBuff[0] = muxState & 0xff;
+	memBuff[1] = (muxState >>  8) & 0xff;
+	memBuff[2] = (muxState >> 16) & 0xff;
+	EEPROM.write_data(&memBuff[0], 1, index*384+program);
 }
 
 void Receive_CAN(CAN_Rx_msg_t* msg){
@@ -399,14 +424,13 @@ void MIDI2_Handler(MIDI2_voice_t* msg){
 	}
 	if (msg->status == MIDI2_VOICE_E::ProgChange){
 		if (msg->options & 1){
-			currentBank = msg->bankPC;
+			currentSettings.bank = msg->bankPC;
 		}
-		if (currentBank == currentSettings.bank){
-			if (sysState == SysState_t::waitMIDI){
-				Save_EEPROM(msg->program);
-			} else {
-				Load_EEPROM(msg->program);
-			}
+		if (sysState == SysState_t::waitMIDI){
+			Save_Profile(msg->program, currentSettings.bank);
+			sysState = SysState_t::idle;
+		} else {
+			Load_Profile(msg->program, currentSettings.bank);
 		}
 	}
 }
@@ -415,13 +439,14 @@ void MIDI1_Handler(MIDI1_msg_t* msg){
 	Settings_t msgSettings;
 	msgSettings.group = msg->group;
 	msgSettings.channel = msg->channel;
-	msgSettings.bank = currentBank;
+	msgSettings.bank = currentSettings.bank;
 	if (msg->status == MIDI1_STATUS_E::ProgChange){
 		if (msgSettings.word == currentSettings.word){
 			if (sysState == SysState_t::waitMIDI){
-				Save_EEPROM(msg->instrument);
+				Save_Profile(msg->instrument, currentSettings.bank);
+				sysState = SysState_t::idle;
 			} else {
-				Load_EEPROM(msg->instrument);
+				Load_Profile(msg->instrument, currentSettings.bank);
 			}
 		}
 	} else if (msg->status == MIDI1_STATUS_E::CControl){
