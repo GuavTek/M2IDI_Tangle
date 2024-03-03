@@ -155,6 +155,7 @@ int main(void){
 	// Scan memory
 	Scan_EEPROM();
 	Load_Profile(0, 0);
+	Mux_Update();
 	
     while (1){
 		
@@ -204,7 +205,6 @@ void Button_Handler(){
 	for (uint8_t i = 0; i < 4; i++){
 		if (buttonState & (1 << (i + readOffset))){
 			if (!(buttonStatePrev & (1 << (i + readOffset)))){
-				pin_outset(LED1, 1);
 				// Rising edge
 				buttonHold = 0;
 				if (sysState == SysState_t::firstButt){
@@ -213,7 +213,7 @@ void Button_Handler(){
 					Mux_Set(buttonNum, i + readOffset);
 					Mux_Update();
 					buttonNum = 32;
-					} else {
+				} else {
 					// First press
 					sysState = SysState_t::firstButt;
 					buttonNum = i + readOffset;
@@ -222,7 +222,7 @@ void Button_Handler(){
 			if ((i + readOffset) == buttonNum){
 				if (buttonHold >= 200){
 					sysState = SysState_t::waitMIDI;
-					} else {
+				} else {
 					// Hold timer
 					buttonHold++;
 				}
@@ -234,7 +234,7 @@ void Button_Handler(){
 	buttonStatePrev = buttonState;
 	
 	// Switch button select
-	if (readOffset){
+	if (readOffset > 0){
 		readOffset = 0;
 		pin_outset(BUTT_X, 0);
 		pin_outset(BUTT_Y, 1);

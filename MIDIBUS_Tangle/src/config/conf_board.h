@@ -78,7 +78,7 @@ inline void pin_outtgl(uint32_t pinNum){
 }
 
 inline void pin_cfg(uint32_t pinNum, uint8_t inEn, uint8_t pullEn){
-	PORT->Group[pinNum/32].PINCFG[pinNum % 32].reg = (inEn << PORT_PINCFG_INEN)| (pullEn << PORT_PINCFG_PULLEN);
+	PORT->Group[pinNum/32].PINCFG[pinNum % 32].reg = (inEn << PORT_PINCFG_INEN_Pos)| (pullEn << PORT_PINCFG_PULLEN_Pos);
 }
 
 static void pin_set_peripheral_function(uint32_t pinmux){

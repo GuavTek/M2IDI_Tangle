@@ -9,7 +9,7 @@
 #include "conf_board.h"
 
 uint32_t muxState = 0;
-uint8_t shreg_offset;
+int8_t shreg_offset;
 
 void Mux_Init(){
 	//Setting the Software Reset bit to 1
@@ -30,7 +30,7 @@ void Mux_Init(){
 
 	// Set master mode and pad configuration
 	SERCOM5->SPI.CTRLA.reg = SERCOM_SPI_CTRLA_MODE_SPI_MASTER | SERCOM_SPI_CTRLA_DOPO(0x1)
-	| SERCOM_SPI_CTRLA_DIPO(0x0) | SERCOM_SPI_CTRLA_MODE(0x0);
+	| SERCOM_SPI_CTRLA_DIPO(0x0) | SERCOM_SPI_CTRLA_CPOL | SERCOM_SPI_CTRLA_CPHA;
 	
 	// Set baud rate
 	while(SERCOM5->SPI.SYNCBUSY.bit.CTRLB);
@@ -53,8 +53,8 @@ void Mux_Set(uint8_t inLine, uint8_t outLine){
 
 void Mux_Update(){
 	pin_outset(SHIFT_STROBE, 0);
-	shreg_offset = 0;
-	SERCOM5->SPI.INTENSET.bit.DRE = 1;
+	shreg_offset = 24;
+	SERCOM5->SPI.INTENSET.reg = SERCOM_SPI_INTENSET_DRE;
 }
 
 void SERCOM5_Handler(){
@@ -63,15 +63,15 @@ void SERCOM5_Handler(){
 	active_ints &= SERCOM5->SPI.INTENSET.reg;
 	SERCOM5->SPI.INTFLAG.reg = active_ints;
 	if (active_ints & SERCOM_SPI_INTFLAG_DRE){
+		shreg_offset -= 8;
 		SERCOM5->SPI.DATA.reg = (muxState >> shreg_offset) & 0xff;
-		shreg_offset += 8;
-		if (shreg_offset >= 24){
-			SERCOM5->SPI.INTENCLR.bit.DRE = 1;
-			SERCOM5->SPI.INTENSET.bit.TXC = 1;
+		if (shreg_offset <= 0){
+			SERCOM5->SPI.INTENCLR.reg = SERCOM_SPI_INTENCLR_DRE;
+			SERCOM5->SPI.INTENSET.reg = SERCOM_SPI_INTENSET_TXC;
 		}
 	}
 	if (active_ints & SERCOM_SPI_INTENSET_TXC){
-		SERCOM5->SPI.INTENCLR.bit.TXC = 1;
+		SERCOM5->SPI.INTENCLR.reg = SERCOM_SPI_INTENCLR_TXC;
 		pin_outset(SHIFT_STROBE, 1);
 	}
 }
