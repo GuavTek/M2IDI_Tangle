@@ -69,8 +69,8 @@ void RTC_Init();
 
 void mem_cb();
 void Scan_EEPROM();
-void Load_Profile(uint8_t program, uint16_t bank);
-void Save_Profile(uint8_t program, uint16_t bank);
+void Load_Profile(uint8_t program, uint16_t bank, uint8_t channel);
+void Save_Profile(uint8_t program, uint16_t bank, uint8_t channel);
 
 uint8_t buttonState;
 uint8_t buttonStatePrev;
@@ -81,6 +81,7 @@ uint8_t buttonHold;
 
 Settings_t currentSettings;
 uint16_t memBanks[20];
+uint8_t memChans[20];
 char memBuff[8];
 uint8_t headPend[5];
 struct {
@@ -154,7 +155,7 @@ int main(void){
 	
 	// Scan memory
 	Scan_EEPROM();
-	Load_Profile(0, 0);
+	Load_Profile(0, memBanks[0], memChans[0]);
 	Mux_Update();
 	
     while (1){
@@ -303,7 +304,8 @@ void mem_cb(){
 			uint8_t memIndex = index - 20;
 			memBuff[0] = memBanks[memIndex] & 0xff;
 			memBuff[1] = (memBanks[memIndex] >> 8) & 0xff;
-			memBuff[2] = 69;
+			memBuff[2] = memChans[memIndex];
+			memBuff[3] = 69;
 			EEPROM.write_data(&memBuff[0], 0, index);
 		} else if (index == 1){
 			memBuff[0] = nextBank;
@@ -341,20 +343,21 @@ void Scan_EEPROM(){
 	for (uint8_t i = 0; i < 20; i++){
 		EEPROM.read_data(temp, 0, 20+i);
 		while (SPI_MEM.Get_Status() != Idle);
-		if (temp[2] == 69){
+		if (temp[3] == 69){
 			validBanks++;
 			memBanks[i] = temp[0] | (temp[1] << 8);
+			memChans[i] = temp[2];
 		} else {
 			break;
 		}
 	}
 }
 
-void Load_Profile(uint8_t program, uint16_t bank){
+void Load_Profile(uint8_t program, uint16_t bank, uint8_t channel){
 	// Check if config exists
 	int8_t index = -1;
 	for (uint8_t i = 0; i < validBanks; i++){
-		if (bank == memBanks[i]){
+		if ((bank == memBanks[i]) && (channel == memChans[i])){
 			index = i;
 			break;
 		}
@@ -369,11 +372,11 @@ void Load_Profile(uint8_t program, uint16_t bank){
 	EEPROM.read_data(&memBuff[0], 1, index*384+program);
 }
 
-void Save_Profile(uint8_t program, uint16_t bank){
+void Save_Profile(uint8_t program, uint16_t bank, uint8_t channel){
 	// Check if bank is in use
 	int8_t index = -1;
 	for (uint8_t i = 0; i < validBanks; i++){
-		if (bank == memBanks[i]){
+		if ((bank == memBanks[i]) && (channel == memChans[i])){
 			index = i;
 			break;
 		}
@@ -383,6 +386,7 @@ void Save_Profile(uint8_t program, uint16_t bank){
 			// Save new bank
 			index = validBanks;
 			memBanks[index] = bank;
+			memChans[index] = channel;
 			uint8_t temp = 20 + index - 1;
 			headPend[temp/8] |= 1 << (temp % 8);
 			memState.pendHead = 1;
@@ -391,6 +395,7 @@ void Save_Profile(uint8_t program, uint16_t bank){
 			// Overwrite oldest bank
 			index = nextBank;
 			memBanks[index] = bank;
+			memChans[index] = channel;
 			uint8_t temp = 20 + index - 1;
 			headPend[temp/8] |= 1 << (temp % 8);
 			headPend[0] |= 1 << 1;
@@ -419,35 +424,32 @@ void Receive_CAN_Payload(char* data, uint8_t length){
 }
 
 void MIDI2_Handler(MIDI2_voice_t* msg){
-	if ((msg->group != currentSettings.group) || (msg->channel != currentSettings.channel)){
-		return;
+	if (msg->group != currentSettings.group){
+			return;
 	}
 	if (msg->status == MIDI2_VOICE_E::ProgChange){
 		if (msg->options & 1){
 			currentSettings.bank = msg->bankPC;
 		}
 		if (sysState == SysState_t::waitMIDI){
-			Save_Profile(msg->program, currentSettings.bank);
+			Save_Profile(msg->program, currentSettings.bank, msg->channel);
 			sysState = SysState_t::idle;
 		} else {
-			Load_Profile(msg->program, currentSettings.bank);
+			Load_Profile(msg->program, currentSettings.bank, msg->channel);
 		}
 	}
 }
 
 void MIDI1_Handler(MIDI1_msg_t* msg){
-	Settings_t msgSettings;
-	msgSettings.group = msg->group;
-	msgSettings.channel = msg->channel;
-	msgSettings.bank = currentSettings.bank;
+	if (msg->group != currentSettings.group){
+			return;
+	}
 	if (msg->status == MIDI1_STATUS_E::ProgChange){
-		if (msgSettings.word == currentSettings.word){
-			if (sysState == SysState_t::waitMIDI){
-				Save_Profile(msg->instrument, currentSettings.bank);
-				sysState = SysState_t::idle;
-			} else {
-				Load_Profile(msg->instrument, currentSettings.bank);
-			}
+		if (sysState == SysState_t::waitMIDI){
+			Save_Profile(msg->instrument, currentSettings.bank, msg->channel);
+			sysState = SysState_t::idle;
+		} else {
+			Load_Profile(msg->instrument, currentSettings.bank, msg->channel);
 		}
 	} else if (msg->status == MIDI1_STATUS_E::CControl){
 		// Change bank???
