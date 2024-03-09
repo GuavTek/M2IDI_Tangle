@@ -310,6 +310,9 @@ void mem_cb(){
 		} else if (index == 1){
 			memBuff[0] = nextBank;
 			EEPROM.write_data(&memBuff[0], 0, 1);
+		} else if (index == 2){
+			memBuff[0] = currentSettings.group;
+			EEPROM.write_data(&memBuff[0], 0, 2);
 		}
 	}
 }
@@ -332,12 +335,18 @@ void Scan_EEPROM(){
 		EEPROM.write_data(temp, 0, 1);
 		while (SPI_MEM.Get_Status() != Idle);
 		// Nothing saved
+		currentSettings.group = 200;
+		
 		return;
 	}
 	
 	EEPROM.read_data(temp, 0, 1);
 	while (SPI_MEM.Get_Status() != Idle);
 	nextBank = temp[0];
+	
+	EEPROM.read_data(temp, 0, 2);
+	while (SPI_MEM.Get_Status() != Idle);
+	currentSettings.group = 200;// temp[0];	// TODO: fix eeprom reading
 	
 	// Check which banks are saved
 	for (uint8_t i = 0; i < 20; i++){
@@ -425,13 +434,20 @@ void Receive_CAN_Payload(char* data, uint8_t length){
 
 void MIDI2_Handler(MIDI2_voice_t* msg){
 	if (msg->group != currentSettings.group){
+		if (currentSettings.group != 200){
 			return;
+		}
 	}
 	if (msg->status == MIDI2_VOICE_E::ProgChange){
 		if (msg->options & 1){
 			currentSettings.bank = msg->bankPC;
 		}
 		if (sysState == SysState_t::waitMIDI){
+			if (currentSettings.group == 200){
+				currentSettings.group = msg->group;
+				headPend[0] |= 1 << 2;
+				memState.pendHead = 1;
+			}
 			Save_Profile(msg->program, currentSettings.bank, msg->channel);
 			sysState = SysState_t::idle;
 		} else {
@@ -442,10 +458,17 @@ void MIDI2_Handler(MIDI2_voice_t* msg){
 
 void MIDI1_Handler(MIDI1_msg_t* msg){
 	if (msg->group != currentSettings.group){
+		if (currentSettings.group != 200){
 			return;
+		}
 	}
 	if (msg->status == MIDI1_STATUS_E::ProgChange){
 		if (sysState == SysState_t::waitMIDI){
+			if (currentSettings.group == 200){
+				currentSettings.group = msg->group;
+				headPend[0] |= 1 << 2;
+				memState.pendHead = 1;
+			 }
 			Save_Profile(msg->instrument, currentSettings.bank, msg->channel);
 			sysState = SysState_t::idle;
 		} else {
