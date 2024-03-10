@@ -305,7 +305,7 @@ void mem_cb(){
 			memBuff[0] = memBanks[memIndex] & 0xff;
 			memBuff[1] = (memBanks[memIndex] >> 8) & 0xff;
 			memBuff[2] = memChans[memIndex];
-			memBuff[3] = 69;
+			memBuff[7] = 69;
 			EEPROM.write_data(&memBuff[0], 0, index);
 		} else if (index == 1){
 			memBuff[0] = nextBank;
@@ -325,18 +325,29 @@ void Scan_EEPROM(){
 	// Read version
 	EEPROM.read_data(temp, 0, 0);
 	while (SPI_MEM.Get_Status() != Idle);
-	if (temp[0] == 0){
+	if (temp[7] != 69){
 		// Initialize settings
 		temp[0] = 1;
+		temp[7] = 69;
 		EEPROM.write_data(temp, 0, 0);
 		while (SPI_MEM.Get_Status() != Idle);
 		
-		temp[0] = 0;
+		nextBank = 0;
+		for (uint8_t i = 0; i < 8; i++){
+			temp[i] = 0;
+		}
 		EEPROM.write_data(temp, 0, 1);
 		while (SPI_MEM.Get_Status() != Idle);
-		// Nothing saved
-		currentSettings.group = 200;
 		
+		currentSettings.group = 200;
+		temp[0] = 200;
+		for (uint8_t i = 1; i < 8; i++){
+			temp[i] = 0;
+		}
+		EEPROM.write_data(temp, 0, 2);
+		while (SPI_MEM.Get_Status() != Idle);
+		
+		// Nothing saved
 		return;
 	}
 	
@@ -346,13 +357,13 @@ void Scan_EEPROM(){
 	
 	EEPROM.read_data(temp, 0, 2);
 	while (SPI_MEM.Get_Status() != Idle);
-	currentSettings.group = 200;// temp[0];	// TODO: fix eeprom reading
+	currentSettings.group = temp[0];
 	
 	// Check which banks are saved
 	for (uint8_t i = 0; i < 20; i++){
 		EEPROM.read_data(temp, 0, 20+i);
 		while (SPI_MEM.Get_Status() != Idle);
-		if (temp[3] == 69){
+		if (temp[7] == 69){
 			validBanks++;
 			memBanks[i] = temp[0] | (temp[1] << 8);
 			memChans[i] = temp[2];
@@ -396,7 +407,7 @@ void Save_Profile(uint8_t program, uint16_t bank, uint8_t channel){
 			index = validBanks;
 			memBanks[index] = bank;
 			memChans[index] = channel;
-			uint8_t temp = 20 + index - 1;
+			uint8_t temp = 20 + index;
 			headPend[temp/8] |= 1 << (temp % 8);
 			memState.pendHead = 1;
 			validBanks++;
@@ -468,7 +479,7 @@ void MIDI1_Handler(MIDI1_msg_t* msg){
 				currentSettings.group = msg->group;
 				headPend[0] |= 1 << 2;
 				memState.pendHead = 1;
-			 }
+			}
 			Save_Profile(msg->instrument, currentSettings.bank, msg->channel);
 			sysState = SysState_t::idle;
 		} else {
