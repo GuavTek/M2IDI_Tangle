@@ -477,9 +477,9 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/rwwee_array</Value>
     </ListValues>
   </armgcc.compiler.directories.IncludePaths>
-  <armgcc.compiler.optimization.level>Optimize (-O1)</armgcc.compiler.optimization.level>
-  <armgcc.compiler.optimization.OtherFlags>-fdata-sections</armgcc.compiler.optimization.OtherFlags>
+  <armgcc.compiler.optimization.level>Optimize most (-O3)</armgcc.compiler.optimization.level>
   <armgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>True</armgcc.compiler.optimization.PrepareFunctionsForGarbageCollection>
+  <armgcc.compiler.optimization.PrepareDataForGarbageCollection>True</armgcc.compiler.optimization.PrepareDataForGarbageCollection>
   <armgcc.compiler.optimization.DebugLevel>Maximum (-g3)</armgcc.compiler.optimization.DebugLevel>
   <armgcc.compiler.warnings.AllWarnings>True</armgcc.compiler.warnings.AllWarnings>
   <armgcc.compiler.miscellaneous.OtherFlags>-pipe -fno-strict-aliasing -Wall -Wstrict-prototypes -Wmissing-prototypes -Werror-implicit-function-declaration -Wpointer-arith -std=gnu99 -ffunction-sections -fdata-sections -Wchar-subscripts -Wcomment -Wformat=2 -Wimplicit-int -Wmain -Wparentheses -Wsequence-point -Wreturn-type -Wswitch -Wtrigraphs -Wunused -Wuninitialized -Wunknown-pragmas -Wfloat-equal -Wundef -Wshadow -Wbad-function-cast -Wwrite-strings -Wsign-compare -Waggregate-return  -Wmissing-declarations -Wformat -Wmissing-format-attribute -Wno-deprecated-declarations -Wpacked -Wredundant-decls -Wnested-externs -Wlong-long -Wunreachable-code -Wcast-align --param max-inline-insns-single=500</armgcc.compiler.miscellaneous.OtherFlags>
@@ -494,7 +494,6 @@
     <ListValues>
       <Value>%24(PackRepoDir)\arm\CMSIS\5.4.0\CMSIS\Core\Include\</Value>
       <Value>%24(PackRepoDir)\atmel\SAMD21_DFP\1.3.395\samd21c\include</Value>
-      <Value>../MIDI_driver</Value>
       <Value>../src/ASF/common/boards</Value>
       <Value>../src/ASF/sam0/utils</Value>
       <Value>../src/ASF/sam0/utils/header_files</Value>
@@ -522,12 +521,15 @@
       <Value>../src/ASF/sam0/drivers/nvm</Value>
       <Value>../src/ASF/sam0/services/eeprom/emulator/rwwee_array</Value>
       <Value>../memory_driver</Value>
+      <Value>../AM_MIDI2/include</Value>
     </ListValues>
   </armgcccpp.compiler.directories.IncludePaths>
   <armgcccpp.compiler.optimization.level>Optimize debugging experience (-Og)</armgcccpp.compiler.optimization.level>
   <armgcccpp.compiler.optimization.PrepareFunctionsForGarbageCollection>True</armgcccpp.compiler.optimization.PrepareFunctionsForGarbageCollection>
+  <armgcccpp.compiler.optimization.PrepareDataForGarbageCollection>True</armgcccpp.compiler.optimization.PrepareDataForGarbageCollection>
   <armgcccpp.compiler.optimization.DebugLevel>Maximum (-g3)</armgcccpp.compiler.optimization.DebugLevel>
   <armgcccpp.compiler.warnings.AllWarnings>True</armgcccpp.compiler.warnings.AllWarnings>
+  <armgcccpp.linker.general.UseNewlibNano>True</armgcccpp.linker.general.UseNewlibNano>
   <armgcccpp.linker.libraries.Libraries>
     <ListValues>
       <Value>libarm_cortexM0l_math</Value>
@@ -611,6 +613,36 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="AM_MIDI2\include\bytestreamToUMP.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\mcoded7.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\midiCIMessageCreate.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\midiCIProcessor.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\umpMessageCreate.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\umpProcessor.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\umpToBytestream.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\include\utils.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\src\umpProcessor.cpp">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="AM_MIDI2\src\utils.cpp">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="main.cpp">
       <SubType>compile</SubType>
     </Compile>
@@ -642,12 +674,6 @@
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="MIDI_Config.h">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="MIDI_driver\MIDI_Driver.cpp">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="MIDI_driver\MIDI_Driver.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="mux.cpp">
@@ -1231,11 +1257,14 @@
     </None>
   </ItemGroup>
   <ItemGroup>
+    <Folder Include="AM_MIDI2\" />
+    <Folder Include="AM_MIDI2\" />
+    <Folder Include="AM_MIDI2\include\" />
+    <Folder Include="AM_MIDI2\src\" />
     <Folder Include="Device_Startup\" />
     <Folder Include="MCP2517_ATSAMD_driver\" />
     <Folder Include="MCP2517_ATSAMD_driver\" />
     <Folder Include="memory_driver\" />
-    <Folder Include="MIDI_driver\" />
     <Folder Include="src\" />
     <Folder Include="src\ASF\" />
     <Folder Include="src\ASF\common2\" />

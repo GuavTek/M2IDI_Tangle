@@ -12,7 +12,8 @@
 #include "SPI_SAMD.h"
 #include "MCP2517.h"
 #include "eeprom_cat.h"
-#include "MIDI_Driver.h"
+#include "AM_MIDI2/include/umpProcessor.h"
+#include "AM_MIDI2/include/utils.h"
 #include "mux.h"
 #include "conf_board.h"
 
@@ -52,7 +53,7 @@ eeprom_cat_c EEPROM(&SPI_MEM);
 
 uint32_t midiID;
 bool rerollID = false;
-MIDI_C MIDI(2);
+umpProcessor MIDI;
 
 void Button_Handler();
 
@@ -60,10 +61,9 @@ void Receive_CAN(CAN_Rx_msg_t* msg);
 void Receive_CAN_Payload(char* data, uint8_t length);
 void Check_CAN_Int();
 
-void MIDI2_Handler(MIDI2_voice_t* msg);
-void MIDI1_Handler(MIDI1_msg_t* msg);
-void MIDI_Stream_Handler(MIDI2_stream_t* msg);
-void MIDI_Data_Handler(MIDI_UMP_t* msg);
+void MIDI_CVM_Handler(struct umpCVM msg);
+void MIDI_Stream_Discovery(uint8_t majVer, uint8_t minVer, uint8_t filter);
+void MIDI_Data_Handler(struct umpData msg);
 
 void RTC_Init();
 
@@ -142,12 +142,9 @@ int main(void){
 	CAN.Set_Rx_Data_Callback(Receive_CAN_Payload);
 	CAN.Init(CAN_CONF);
 	
-	MIDI.Set_handler(MIDI2_Handler);
-	MIDI.Set_handler(MIDI1_Handler);
-	MIDI.Set_handler(MIDI_Stream_Handler);
-	MIDI.Set_handler(MIDI_Data_Handler);
-	MIDI.Set_channel_mask(0xffff);
-	MIDI.Set_group_mask(0xffff);
+	MIDI.setCVM(MIDI_CVM_Handler);
+	MIDI.setSysEx(MIDI_Data_Handler);
+	MIDI.setMidiEndpoint(MIDI_Stream_Discovery);
 	
 	// Randomize ID
 	midiID = rand();
@@ -440,62 +437,75 @@ void Receive_CAN(CAN_Rx_msg_t* msg){
 }
 
 void Receive_CAN_Payload(char* data, uint8_t length){
-	MIDI.Decode(data, length);
+	for (uint8_t i = 0; i < length-3; i += 4){
+		uint32_t temp = (data[i] << 24) | (data[i+1] << 16) | (data[i+2] << 8) | data[i+3];
+		MIDI.processUMP(temp);
+	}
 }
 
-void MIDI2_Handler(MIDI2_voice_t* msg){
-	if (msg->group != currentSettings.group){
+void MIDI_CVM_Handler(struct umpCVM msg){
+	if (msg.umpGroup != currentSettings.group){
 		if (currentSettings.group != 200){
 			return;
 		}
 	}
-	if (msg->status == MIDI2_VOICE_E::ProgChange){
-		if (msg->options & 1){
-			currentSettings.bank = msg->bankPC;
+	if (msg.status == PROGRAM_CHANGE){
+		if (msg.flag1){
+			// BankValid
+			currentSettings.bank = msg.bank;
 		}
 		if (sysState == SysState_t::waitMIDI){
 			if (currentSettings.group == 200){
-				currentSettings.group = msg->group;
+				currentSettings.group = msg.umpGroup;
 				headPend[0] |= 1 << 2;
 				memState.pendHead = 1;
 			}
-			Save_Profile(msg->program, currentSettings.bank, msg->channel);
+			Save_Profile(msg.value, currentSettings.bank, msg.channel);
 			sysState = SysState_t::idle;
 		} else {
-			Load_Profile(msg->program, currentSettings.bank, msg->channel);
+			Load_Profile(msg.value, currentSettings.bank, msg.channel);
 		}
 	}
 }
 
-void MIDI1_Handler(MIDI1_msg_t* msg){
-	if (msg->group != currentSettings.group){
-		if (currentSettings.group != 200){
-			return;
+void MIDI_Stream_Discovery(uint8_t majVer, uint8_t minVer, uint8_t filter){
+	/* TODO
+	//Upon Recieving the filter it is important to return the information requested
+	if(filter & 0x1){ //Endpoint Info Notification
+		std::array<uint32_t, 4> ump = mtFMidiEndpointInfoNotify(3, false, true, false, false);
+		sendUMP(ump.data(),4);
+	}
+
+	if(filter & 0x2) {
+		std::array<uint32_t, 4> ump = mtFMidiEndpointDeviceInfoNotify({DEVICE_MFRID}, {DEVICE_FAMID}, {DEVICE_MODELID}, {DEVICE_VERSIONID});
+		sendUMP( ump.data(), 4);
+	}
+
+	if(filter & 0x4) {
+		uint8_t friendlyNameLength = strlen(DEVICE_MIDIENPOINTNAME);
+		for(uint8_t offset=0; offset<friendlyNameLength; offset+=14) {
+			std::array<uint32_t, 4> ump = mtFMidiEndpointTextNotify(MIDIENDPOINT_NAME_NOTIFICATION, offset, (uint8_t *) DEVICE_MIDIENPOINTNAME,friendlyNameLength);
+			sendUMP(ump.data(),4);
 		}
 	}
-	if (msg->status == MIDI1_STATUS_E::ProgChange){
-		if (sysState == SysState_t::waitMIDI){
-			if (currentSettings.group == 200){
-				currentSettings.group = msg->group;
-				headPend[0] |= 1 << 2;
-				memState.pendHead = 1;
-			}
-			Save_Profile(msg->instrument, currentSettings.bank, msg->channel);
-			sysState = SysState_t::idle;
-		} else {
-			Load_Profile(msg->instrument, currentSettings.bank, msg->channel);
+	
+	if(filter & 0x8) {
+		int8_t piiLength = strlen(PRODUCT_INSTANCE_ID);
+
+		for(uint8_t offset=0; offset<piiLength; offset+=14) {
+			std::array<uint32_t, 4> ump = mtFMidiEndpointTextNotify(PRODUCT_INSTANCE_ID, offset, (uint8_t *) buff,piiLength);
+			sendUMP(ump.data(),4);
 		}
-	} else if (msg->status == MIDI1_STATUS_E::CControl){
-		// Change bank???
-		
 	}
+	
+	if(filter & 0x10){
+		std::array<uint32_t, 4> ump = mtFNotifyProtocol(0x1,false,false);
+		sendUMP(ump.data(),4);
+	}
+	*/
 }
 
-void MIDI_Stream_Handler(MIDI2_stream_t* msg){
-	// TODO: Figure out what data is being asked for and set flags to respond in main
-}
-
-void MIDI_Data_Handler(MIDI_UMP_t* msg){
+void MIDI_Data_Handler(struct umpData msg){
 	// TODO: implement Capability exchange features
 }
 
