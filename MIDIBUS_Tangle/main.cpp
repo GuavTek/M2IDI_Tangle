@@ -17,18 +17,6 @@
 #include "mux.h"
 #include "conf_board.h"
 
-
-struct Settings_t {
-	union{
-		uint32_t word;
-		struct{
-			uint8_t group;
-			uint8_t channel;
-			uint16_t bank;
-		};
-	};
-};
-
 const eeprom_cat_conf_t EEPROM_CONF = {
 	.comSlaveNum = 0,
 	.maxAddr = 0x1fff

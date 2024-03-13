@@ -9,6 +9,17 @@
 #ifndef MUX_H_
 #define MUX_H_
 
+struct Settings_t {
+	union{
+		uint32_t word;
+		struct{
+			uint8_t group;
+			uint8_t channel;
+			uint16_t bank;
+		};
+	};
+};
+
 extern uint32_t muxState;
 
 // Initialize hardware to control multiplexers
