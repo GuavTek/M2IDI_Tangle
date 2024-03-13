@@ -17,22 +17,6 @@
 #include "mux.h"
 #include "conf_board.h"
 
-const eeprom_cat_conf_t EEPROM_CONF = {
-	.comSlaveNum = 0,
-	.maxAddr = 0x1fff
-};
-
-const eeprom_cat_section_t EEPROM_SECTIONS[2] = {
-	{	// Header, 320 byte
-		.offset = 0x0000,
-		.objectSize = 8 // Contains 40 chunks
-	},
-	{	// Main
-		.offset = 0x0140,
-		.objectSize = 3 // sizeof(muxstate)
-	}
-};
-
 SPI_SAMD_C SPI_CAN(SERCOM1);
 MCP2517_C CAN(&SPI_CAN);
 

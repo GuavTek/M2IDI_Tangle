@@ -12,6 +12,24 @@
 
 #include "SPI_SAMD.h"
 #include "MCP2517.h"
+#include "eeprom_cat.h"
+
+// Define eeprom configuration
+const eeprom_cat_conf_t EEPROM_CONF = {
+	.comSlaveNum = 0,
+	.maxAddr = 0x1fff
+};
+
+const eeprom_cat_section_t EEPROM_SECTIONS[2] = {
+	{	// Header, 320 byte
+		.offset = 0x0000,
+		.objectSize = 8 // Contains 40 chunks
+	},
+	{	// Main
+		.offset = 0x0140,
+		.objectSize = 3 // sizeof(muxstate)
+	}
+};
 
 // Define CAN filters
 // Module will need stream type to define function blocks,
