@@ -14,6 +14,12 @@
 #include "MCP2517.h"
 #include "eeprom_cat.h"
 
+const uint32_t MIDI_MFRID = 0x78;
+const uint16_t MIDI_FAMID = 420;
+const uint16_t DEVICE_MODELID = 1;
+const uint32_t DEVICE_VERSIONID = 2;
+const char DEVICE_NAME[] = "M2IDI_TANGLE";
+
 // Define eeprom configuration
 const eeprom_cat_conf_t EEPROM_CONF = {
 	.comSlaveNum = 0,

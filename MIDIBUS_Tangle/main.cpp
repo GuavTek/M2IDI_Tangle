@@ -8,11 +8,13 @@
 
 #include "sam.h"
 #include <asf.h>
+#include <array>
 #include "MIDI_Config.h"
 #include "SPI_SAMD.h"
 #include "MCP2517.h"
 #include "eeprom_cat.h"
 #include "AM_MIDI2/include/umpProcessor.h"
+#include "AM_MIDI2/include/umpMessageCreate.h"
 #include "AM_MIDI2/include/utils.h"
 #include "mux.h"
 #include "conf_board.h"
@@ -441,40 +443,42 @@ void MIDI_CVM_Handler(struct umpCVM msg){
 }
 
 void MIDI_Stream_Discovery(uint8_t majVer, uint8_t minVer, uint8_t filter){
-	/* TODO
 	//Upon Recieving the filter it is important to return the information requested
 	if(filter & 0x1){ //Endpoint Info Notification
-		std::array<uint32_t, 4> ump = mtFMidiEndpointInfoNotify(3, false, true, false, false);
-		sendUMP(ump.data(),4);
+		std::array<uint32_t, 4> ump = UMPMessage::mtFMidiEndpointInfoNotify(1, true, true, false, false);
+		//sendUMP(ump.data(),4);
 	}
 
 	if(filter & 0x2) {
-		std::array<uint32_t, 4> ump = mtFMidiEndpointDeviceInfoNotify({DEVICE_MFRID}, {DEVICE_FAMID}, {DEVICE_MODELID}, {DEVICE_VERSIONID});
-		sendUMP( ump.data(), 4);
+		std::array<uint32_t, 4> ump = UMPMessage::mtFMidiEndpointDeviceInfoNotify(
+		{MIDI_MFRID & 0xff, (MIDI_MFRID >> 8) & 0xff, (MIDI_MFRID >> 16) & 0xff},
+		{MIDI_FAMID & 0xff, (MIDI_FAMID >> 8) & 0xff}, 
+		{DEVICE_MODELID & 0xff, (DEVICE_MODELID >> 8) & 0xff}, 
+		{DEVICE_VERSIONID & 0xff, (DEVICE_VERSIONID >> 8) & 0xff, (DEVICE_VERSIONID >> 16) & 0xff, (DEVICE_VERSIONID >> 24) & 0xff});
+		//sendUMP( ump.data(), 4);
 	}
 
 	if(filter & 0x4) {
-		uint8_t friendlyNameLength = strlen(DEVICE_MIDIENPOINTNAME);
+		uint8_t friendlyNameLength = sizeof(DEVICE_NAME);
 		for(uint8_t offset=0; offset<friendlyNameLength; offset+=14) {
-			std::array<uint32_t, 4> ump = mtFMidiEndpointTextNotify(MIDIENDPOINT_NAME_NOTIFICATION, offset, (uint8_t *) DEVICE_MIDIENPOINTNAME,friendlyNameLength);
-			sendUMP(ump.data(),4);
+			std::array<uint32_t, 4> ump = UMPMessage::mtFMidiEndpointTextNotify(MIDIENDPOINT_NAME_NOTIFICATION, offset, (uint8_t *) DEVICE_NAME,friendlyNameLength);
+			//sendUMP(ump.data(),4);
 		}
 	}
 	
 	if(filter & 0x8) {
-		int8_t piiLength = strlen(PRODUCT_INSTANCE_ID);
-
-		for(uint8_t offset=0; offset<piiLength; offset+=14) {
-			std::array<uint32_t, 4> ump = mtFMidiEndpointTextNotify(PRODUCT_INSTANCE_ID, offset, (uint8_t *) buff,piiLength);
-			sendUMP(ump.data(),4);
-		}
+		// TODO: read MCU unique ID
+		//int8_t piiLength = sizeof(PRODUCT_INSTANCE_ID);
+		//for(uint8_t offset=0; offset<piiLength; offset+=14) {
+		//	std::array<uint32_t, 4> ump = UMPMessage::mtFMidiEndpointTextNotify(PRODUCT_INSTANCE_ID, offset, (uint8_t *) buff,piiLength);
+		//	//sendUMP(ump.data(),4);
+		//}
 	}
 	
 	if(filter & 0x10){
-		std::array<uint32_t, 4> ump = mtFNotifyProtocol(0x1,false,false);
-		sendUMP(ump.data(),4);
+		std::array<uint32_t, 4> ump = UMPMessage::mtFNotifyProtocol(0x2,false,false);
+		//sendUMP(ump.data(),4);
 	}
-	*/
 }
 
 void MIDI_Data_Handler(struct umpData msg){
