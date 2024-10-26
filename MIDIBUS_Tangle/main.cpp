@@ -5,7 +5,6 @@
  * Author : GuavTek
  */ 
 
-
 #include "sam.h"
 #include <asf.h>
 #include <array>
@@ -19,11 +18,11 @@
 #include "mux.h"
 #include "conf_board.h"
 
-SPI_SAMD_C SPI_CAN(SERCOM1);
-MCP2517_C CAN(&SPI_CAN);
+SPI_SAMD_C SPI_CAN(SERCOM1, 1);
+MCP2517_C CAN(&SPI_CAN, 0);
 
-SPI_SAMD_C SPI_MEM(SERCOM2);
-eeprom_cat_c EEPROM(&SPI_MEM);
+SPI_SAMD_C SPI_MEM(SERCOM2, 1);
+eeprom_cat_c EEPROM(&SPI_MEM, 0);
 
 uint32_t midiID;
 bool rerollID = false;

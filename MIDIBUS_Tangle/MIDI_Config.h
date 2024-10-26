@@ -22,7 +22,6 @@ const char DEVICE_NAME[] = "M2IDI_TANGLE";
 
 // Define eeprom configuration
 const eeprom_cat_conf_t EEPROM_CONF = {
-	.comSlaveNum = 0,
 	.maxAddr = 0x1fff
 };
 
@@ -125,7 +124,6 @@ const spi_config_t SPI_CAN_CONF = {
 	.pinmux_mosi = PINMUX_PA18C_SERCOM1_PAD2,
 	.pinmux_miso = PINMUX_PA16C_SERCOM1_PAD0,
 	.pinmux_sck = PINMUX_PA19C_SERCOM1_PAD3,
-	.num_cs = 1,
 	.pin_cs = {PIN_PA17}
 };
 
@@ -137,12 +135,10 @@ const spi_config_t SPI_MEM_CONF = {
 	.pinmux_mosi = PINMUX_PA14C_SERCOM2_PAD2,
 	.pinmux_miso = PINMUX_PA12C_SERCOM2_PAD0,
 	.pinmux_sck = PINMUX_PA15C_SERCOM2_PAD3,
-	.num_cs = 1,
 	.pin_cs = {PIN_PA13}
 };
 
 const CAN_Config_t CAN_CONF = {
-	.comSlaveNum = 0,
 	.clkOutDiv = CAN_Config_t::clkOutDiv1,
 	.sysClkDiv = false,
 	.clkDisable = false,
