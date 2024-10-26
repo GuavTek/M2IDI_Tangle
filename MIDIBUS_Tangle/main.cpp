@@ -25,7 +25,7 @@ SPI_SAMD_C SPI_MEM(SERCOM2, 1);
 eeprom_cat_c EEPROM(&SPI_MEM, 0);
 
 uint32_t midiID;
-bool rerollID = false;
+bool updateGroup = false;
 umpProcessor MIDI;
 
 void Button_Handler();
@@ -121,7 +121,6 @@ int main(void){
 	
 	// Randomize ID
 	midiID = rand();
-	rerollID = true;
 	
 	// Scan memory
 	Scan_EEPROM();
@@ -129,12 +128,12 @@ int main(void){
 	Mux_Update();
 	
     while (1){
-		
-		if (rerollID){
-			rerollID = false;
-			CAN_Filter_t tempFilt = CAN_FLT3;
-			tempFilt.ID = midiID & 0x7f;
-			CAN.Reconfigure_Filter(&tempFilt, 3);
+
+		if (updateGroup){
+			updateGroup = false;
+			CAN_Filter_t tempFilt = CAN_FLT0;
+			tempFilt.ID = (currentSettings.group & 0xF) << 7;
+			CAN.Reconfigure_Filter(&tempFilt, 0);
 		}
 		
 		static uint32_t buttonTimer = 0;
@@ -328,6 +327,7 @@ void Scan_EEPROM(){
 	EEPROM.read_data(temp, 0, 2);
 	while (SPI_MEM.Get_Status() != Idle);
 	currentSettings.group = temp[0];
+	updateGroup |= currentSettings.group != 200;
 	
 	// Check which banks are saved
 	for (uint8_t i = 0; i < 20; i++){
@@ -402,9 +402,8 @@ void Save_Profile(uint8_t program, uint16_t bank, uint8_t channel){
 }
 
 void Receive_CAN(CAN_Rx_msg_t* msg){
-	if (!msg->extendedID && ((msg->id & 0x7F) == (midiID & 0x7F))){
-		// Received an undirected message using the same ID. Reconfigure.
-		rerollID = true;
+	if ((msg->id & 0x7F) == (midiID & 0x7F)){
+		// Received a message using the same ID. Reconfigure.
 		midiID = rand();
 	}
 }

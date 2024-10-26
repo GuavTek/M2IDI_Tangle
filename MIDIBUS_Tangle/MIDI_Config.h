@@ -40,44 +40,24 @@ const eeprom_cat_section_t EEPROM_SECTIONS[2] = {
 // Module will need stream type to define function blocks,
 // Sysex types for capability exchange, voice types for program change messages
 
-// Regular input. MIDI 1.0 channel (0x2), sysex 7-bit (0x3)
+// Regular input
 const CAN_Filter_t CAN_FLT0 = {
 	.enabled = true,
 	.fifoDestination = 1,
 	.extendedID = false,
-	.ID = 0b0010 << 7,
-	.matchBothIDTypes = false,
-	.maskID = 0b1110 << 7
-};
-
-// Regular input. MIDI 2.0 channel (0x4), sysex 8-bit (0x5)
-const CAN_Filter_t CAN_FLT1 = {
-	.enabled = true,
-	.fifoDestination = 1,
-	.extendedID = false,
-	.ID = 0b0100 << 7,
-	.matchBothIDTypes = false,
-	.maskID = 0b1110 << 7
-};
-
-// Regular input. Stream data (0xf)
-const CAN_Filter_t CAN_FLT2 = {
-	.enabled = true,
-	.fifoDestination = 1,
-	.extendedID = false,
-	.ID = 0b1111 << 7,
+	.ID = 0b0000 << 7,	// Default to group 0
 	.matchBothIDTypes = false,
 	.maskID = 0b1111 << 7
 };
 
-// Targeted input. Match messages with extended CAN id
-const CAN_Filter_t CAN_FLT3 = {
+// Groupless input. Match messages with extended CAN id
+const CAN_Filter_t CAN_FLT1 = {
 	.enabled = true,
 	.fifoDestination = 1,
 	.extendedID = true,
-	.ID = 69,	// Temporary value, will be changed in runtime
+	.ID = 0,
 	.matchBothIDTypes = false,
-	.maskID = 0x07f
+	.maskID = 0x00
 };
 
 // Define FIFO configurations
